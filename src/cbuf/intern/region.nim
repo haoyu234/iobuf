@@ -1,9 +1,6 @@
 import chunk
 import indices
 
-const DEFAULT_CHUNK_SIZE* = 8192
-const DEFAULT_LARGE_CHUNK_SIZE* = DEFAULT_CHUNK_SIZE * 4
-
 type
   Region* = object
     offset: int32

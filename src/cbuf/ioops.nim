@@ -49,15 +49,19 @@ when defined(linux):
     size = result
 
     template appendBuf(idx, extendBuf) =
-      if size > 0:
-        let len = min(int(vecBuf[idx].iov_len), size)
-        dec size, len
+      block appendBufScope:
+        if size > 0:
+          let len = min(int(vecBuf[idx].iov_len), size)
+          dec size, len
 
-        let oldLen = vecChunk[idx].len
-        vecChunk[idx].extendLen(len)
+          let oldLen = vecChunk[idx].len
+          vecChunk[idx].extendLen(len)
 
-        buf.internalEnqueueRight(vecChunk[idx], oldLen, len, extendBuf)
+          when extendBuf:
+            if buf.extendAdjacencyRegionRight(vecBuf[idx].iov_base, len):
+              break appendBufScope
 
+          buf.enqueueZeroCopyRight(vecChunk[idx], oldLen, len)
       buf.releaseChunk(move vecChunk[idx])
 
     appendBuf(0, true)
