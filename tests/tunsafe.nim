@@ -1,25 +1,33 @@
 import std/unittest
 
-import cbuf/intern/unsafe
+import cbuf/intern/deprecated
 
-var p: ptr UncheckedArray[int]
+when defined(stealSeq):
 
-template checkSeq(d) =
-  check d[0] == 1
-  check d[1] == 2
-  check d[2] == 3
-  check d[3] == 4
+  var p: ptr UncheckedArray[int]
 
-test "stealSeq":
+  template checkSeq(d) =
+    check d[0] == 1
+    check d[1] == 2
+    check d[2] == 3
+    check d[3] == 4
 
-  block:
-    var data = @[1, 2, 3, 4]
-    p = stealSeq(move data) # Box::into_raw
+  test "stealSeq":
 
+    block:
+      var data = @[1, 2, 3, 4]
+      p = stealSeq(move data) # Box::into_raw
+
+      checkSeq(p)
     checkSeq(p)
-  checkSeq(p)
 
-test "restoreSeq":
+  test "restoreSeq":
 
-  let data = restoreSeq(4, p)
-  checkSeq(data) # Box::from_raw
+    let data = restoreSeq(4, p)
+    checkSeq(data) # Box::from_raw
+
+test "getAddr":
+
+  let a = 1
+
+  check compiles(a.getAddr)
