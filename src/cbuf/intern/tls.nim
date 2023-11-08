@@ -1,37 +1,48 @@
-import blockbuf
+import chunk
 
 type
   ThreadTlsObj = object
-    lastBuf*: BlockBuf
+    lastChunk*: Chunk
 
 var g_threadTls* {.threadvar.}: ThreadTlsObj
 
-proc getTlsBlockBuf*(occupyBuf: static[bool] = false): BlockBuf =
-  var lastBuf {.cursor.} = g_threadTls.lastBuf
+proc allocTlsChunk*(): Chunk {.inline.} =
+  var lastChunk {.cursor.} = g_threadTls.lastChunk
 
   while true:
-    result = lastBuf
-    if result.isNil:
-      result = newBlockBuf()
-      if not occupyBuf:
-        g_threadTls.lastBuf = result
-      break
+    if lastChunk.isNil:
+      result = newChunk(DEFAULT_CHUNK_SIZE)
+      return
 
-    if result.isFull:
-      lastBuf = result.popBuf()
+    if lastChunk.isFull:
+      lastChunk = result.dequeueChunk()
       continue
 
-    if occupyBuf:
-      lastBuf = result.popBuf()
-
-    g_threadTls.lastBuf = lastBuf
-    break
-
-proc releaseTlsBlockBuf*(blockBuf: sink BlockBuf) =
-  if blockBuf.isNil or blockBuf.isFull:
+    result = lastChunk
+    g_threadTls.lastChunk = lastChunk.dequeueChunk()
     return
 
-  if not g_threadTls.lastBuf.isNil:
-    blockBuf.enqueueBuf(g_threadTls.lastBuf)
+proc sharedTlsChunk*(): Chunk {.inline.} =
+  var lastChunk {.cursor.} = g_threadTls.lastChunk
 
-  g_threadTls.lastBuf = blockBuf
+  while true:
+    if lastChunk.isNil:
+      result = newChunk(DEFAULT_CHUNK_SIZE)
+      g_threadTls.lastChunk = result
+      return
+
+    if lastChunk.isFull:
+      lastChunk = lastChunk.dequeueChunk()
+      continue
+
+    result = lastChunk
+    return
+
+proc releaseTlsChunk*(chunk: sink Chunk) =
+  if chunk.isFull:
+    return
+
+  if not g_threadTls.lastChunk.isNil:
+    chunk.enqueueChunk(g_threadTls.lastChunk)
+
+  g_threadTls.lastChunk = chunk

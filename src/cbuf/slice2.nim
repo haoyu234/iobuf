@@ -1,35 +1,38 @@
 import intern/indices
-import intern/blockbuf
+import intern/deprecated
 
 type
   Slice2*[T] = object
     len: int
     data: ptr UncheckedArray[T]
 
-proc len*[T](s: Slice2[T]): int {.inline.} =
+template len*[T](s: Slice2[T]): int =
   s.len
 
-proc `[]`*[T](s: Slice2[T], idx: Natural): var T {.inline.} =
+template `[]`*[T](s: Slice2[T], idx: Natural): var T =
   s.data[idx]
 
-proc `[]`*[T](s: Slice2[T], idx: BackwardsIndex): var T {.inline.} =
+template `[]`*[T](s: Slice2[T], idx: BackwardsIndex): var T =
   s.data[s.len - int(idx)]
 
-template unsafeSlice(T: typedesc, data2: pointer, len2: int,
-    offset = 0): Slice2[T] =
-  Slice2[T](
-    len: len2,
-    data: cast[ptr UncheckedArray[T]](cast[uint](data2) + uint(offset * sizeof(T)))
-  )
+proc initSlice*(T: typedesc,
+  data2: pointer, offset2, len2: int): Slice2[T] {.inline.} =
+
+  result.len = len2
+  result.data = cast[ptr UncheckedArray[T]](cast[uint](data2) + uint(offset2 *
+      sizeof(T)))
 
 proc slice*[T](d: openArray[T]): Slice2[T] {.inline.} =
-  unsafeSlice(T, d[0].addr, d.len, 0)
+  initSlice(T, d[0].getAddr, 0, d.len)
 
-proc slice*(sliceBuf: SliceBuf): Slice2[byte] {.inline.} =
-  sliceBuf.toOpenArray().slice()
-
-proc toSeq*[T](s: Slice2[T]): seq[T] =
+proc toSeq*[T](s: Slice2[T]): seq[T] {.inline.} =
   result.add(s.toOpenArray())
+
+template leftAddr*[T](s: Slice2[T]): pointer =
+  s.data
+
+template rightAddr*[T](s: Slice2[T]): pointer =
+  s.data[s.len].getAddr
 
 template toOpenArray*[T](s: Slice2[T]): openArray[T] =
   s.data.toOpenArray(0, s.len - 1)
@@ -48,7 +51,7 @@ proc `[]`*[T; U, V: Ordinal](s: Slice2[T], x: HSlice[U, V]): Slice2[T] =
   let L = (s ^^ x.b) - a + 1
 
   checkSliceOp(s.len, a, a + L)
-  unsafeSlice(T, s.data, L, a)
+  initSlice(T, s.data, a, L)
 
 template equalsImpl(t) {.dirty.} =
   proc `==`*[T](s: Slice2[T], d: t[T]): bool =

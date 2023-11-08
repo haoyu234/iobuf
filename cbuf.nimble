@@ -5,11 +5,9 @@ author        = "haoyu234"
 description   = "A new awesome nimble package"
 license       = "MIT"
 srcDir        = "src"
-bin           = @["bench", "prof"]
 
 
 # Dependencies
 
-requires "nim >= 2.1.1"
+requires "nim >= 1.6.14"
 requires "instru >= 0.0.1"
-requires "benchy >= 0.0.1"

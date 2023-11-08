@@ -1,2 +1,2 @@
-import cbuf/[buf, slice2, ioops]
-export buf, slice2, ioops
+import cbuf/[iobuf, slice2, ioops]
+export iobuf, slice2, ioops

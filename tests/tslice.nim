@@ -1,6 +1,7 @@
 import std/unittest
 
 import cbuf
+import cbuf/intern/deprecated
 
 {.experimental: "views".}
 
@@ -64,6 +65,6 @@ test "sliceAddr":
   let slice1 = slice[0 .. ^2]
   let slice2 = slice[1 .. ^1]
 
-  check slice1[1].addr == slice2[0].addr
+  check slice1[1].getAddr == slice2[0].getAddr
   check slice1.len == data.len - 1
   check slice2.len == data.len - 1
