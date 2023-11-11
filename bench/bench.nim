@@ -42,7 +42,7 @@ proc writeBenchBuf(data: openArray[byte]) =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.append(addr(data[offset]), left, false)
+    buf.enqueueZeroCopyRight(addr(data[offset]), left)
     left
 
   benchLoop(append, SIZE)
@@ -63,7 +63,7 @@ proc writeBenchBuf2(data: openArray[byte]) =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.internalEnqueueRight(addr(data[offset]), left, false)
+    buf.enqueueZeroCopyRight(addr(data[offset]), left)
     left
 
   benchLoop(append, SIZE)

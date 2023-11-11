@@ -108,11 +108,9 @@ iterator regions*(buf: IOBuf): Region {.inline.} =
   for idx in 0..<buf.queueSize:
     yield buf.storage[buf.index(idx)]
 
-template allocQueueStorage(capacity: int): ptr UncheckedArray[Region] =
-  cast[ptr UncheckedArray[Region]](allocShared0(sizeof(Region) * capacity))
-
 template extendQueueStorageImpl(buf: var IOBuf, capacity: int) =
-  let queueStorage = allocQueueStorage(capacity)
+  let queueStorage = cast[ptr UncheckedArray[Region]](allocShared0(sizeof(
+      Region) * capacity))
 
   for idx in 0..<buf.queueSize:
     queueStorage[idx] = buf.storage[buf.index(idx)]
@@ -127,38 +125,29 @@ template extendQueueStorageImpl(buf: var IOBuf, capacity: int) =
   buf.queueStorage = queueStorage
   buf.queueCapacity = int32(capacity)
 
-proc reserveQueueStorage(buf: var IOBuf, size: int) {.inline.} =
-  if buf.queueCapacity < size:
-    let newCapacity = nextPowerOfTwo(size)
-    extendQueueStorageImpl(buf, newCapacity)
-
-proc extendQueueStorage(buf: var IOBuf) {.inline.} =
+template extendQueueStorage(buf: var IOBuf) =
   if buf.queueSize == buf.queueCapacity or
     (not INLINE_STORAGE and buf.queueStorage.isNil):
 
     let newCapacity = max(int(buf.queueCapacity) * 2, INITIAL_QUEUE_CAPACITY)
     extendQueueStorageImpl(buf, newCapacity)
 
-proc extendTailRegion(buf: var IOBuf,
-  data: pointer, size: int): bool {.inline.} =
+proc reserveQueueStorage*(buf: var IOBuf, size: int) {.inline.} =
+  if buf.queueCapacity < size:
+    let newCapacity = nextPowerOfTwo(size)
+    extendQueueStorageImpl(buf, newCapacity)
 
+proc extendAdjacencyRegionRight*(buf: var IOBuf, wirteAddr: pointer,
+    size: int): bool {.inline.} =
   if buf.queueSize > 0:
     let idx = buf.index(^1)
-    let tailBuf = buf.storage[idx].getAddr
 
-    if data == tailBuf[].rightAddr and data < tailBuf[].chunk.rightAddr:
+    if wirteAddr == buf.storage[idx].rightAddr:
       inc buf.len, size
-      tailBuf[].extendLen(size)
+      buf.storage[idx].extendLen(size)
       result = true
 
-proc internalEnqueueRight*(buf: var IOBuf,
-  region: sink Region, extendBuf: static[bool]) {.inline.} =
-
-  if extendBuf and buf.queueSize > 0:
-    if buf.extendTailRegion(
-      region.leftAddr, region.len):
-      return
-
+proc enqueueZeroCopyRight*(buf: var IOBuf, region: sink Region) {.inline.} =
   let dataLen = region.len
 
   buf.extendQueueStorage()
@@ -167,15 +156,9 @@ proc internalEnqueueRight*(buf: var IOBuf,
   inc buf.queueSize
   inc buf.len, dataLen
 
-proc internalEnqueueRight*(buf: var IOBuf,
-  chunk: sink Chunk, offset, size: int, extendBuf: static[bool]) {.inline.} =
-
+proc enqueueZeroCopyRight*(buf: var IOBuf, chunk: sink Chunk, offset,
+    size: int) {.inline.} =
   assert size > 0
-
-  if extendBuf and offset > 0 and buf.queueSize > 0:
-    if buf.extendTailRegion(
-      cast[pointer](cast[uint](chunk.leftAddr) + uint(offset)), size):
-      return
 
   buf.extendQueueStorage()
   buf.storage[buf.index(buf.queueSize)].initRegion(move chunk, offset, size)
@@ -183,25 +166,17 @@ proc internalEnqueueRight*(buf: var IOBuf,
   inc buf.queueSize
   inc buf.len, size
 
-proc internalEnqueueRight*(buf: var IOBuf,
-  data: pointer, size: int, extendBuf: static[bool]) {.inline.} =
-
-  if extendBuf and buf.queueSize > 0:
-    if buf.extendTailRegion(data, size):
-      return
-
-  if size == 1:
-    var lastChunk = sharedTlsChunk()
-    let oldLen = lastChunk.len
-    let writeAddr = cast[uint](lastChunk.leftAddr) + uint(oldLen)
-    cast[ptr byte](writeAddr)[] = cast[ptr byte](data)[]
-
-    lastChunk.extendLen(1)
-    buf.internalEnqueueRight(move lastChunk, oldLen, 1, false)
-    return
+proc enqueueZeroCopyRight*(buf: var IOBuf, data: pointer,
+    size: int) {.inline.} =
+  assert size > 0
 
   var chunk = newChunk(data, size, size)
-  buf.internalEnqueueRight(chunk, 0, size, false)
+
+  buf.extendQueueStorage()
+  buf.storage[buf.index(buf.queueSize)].initRegion(move chunk, 0, size)
+
+  inc buf.queueSize
+  inc buf.len, size
 
 proc allocChunk*(buf: var IOBuf): Chunk {.inline.} =
   while true:
@@ -220,21 +195,20 @@ proc releaseChunk*(buf: var IOBuf, chunk: sink Chunk) {.inline.} =
     else:
       buf.lastChunk = chunk
 
-proc append*(buf: var IOBuf,
-  data: pointer, size: int, extendBuf: static[bool]) {.inline.} =
-
-  if extendBuf and buf.queueSize > 0:
-    if buf.extendTailRegion(data, size):
-      return
-
+proc enqueueSlowCopyRight*(buf: var IOBuf, data: pointer,
+    size: int) {.inline.} =
   if size == 1:
     var lastChunk = sharedTlsChunk()
     let oldLen = lastChunk.len
-    let writeAddr = cast[uint](lastChunk.leftAddr) + uint(oldLen)
+    let writeAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(oldLen))
     cast[ptr byte](writeAddr)[] = cast[ptr byte](data)[]
 
     lastChunk.extendLen(1)
-    buf.internalEnqueueRight(move lastChunk, oldLen, 1, false)
+
+    if buf.extendAdjacencyRegionRight(writeAddr, 1):
+      return
+
+    buf.enqueueZeroCopyRight(move lastChunk, oldLen, 1)
     return
 
   var written = 0
@@ -257,38 +231,40 @@ proc append*(buf: var IOBuf,
 
     inc written, dataLen
     lastChunk.extendLen(dataLen)
-    buf.internalEnqueueRight(lastChunk, oldLen, dataLen, false)
+    buf.enqueueZeroCopyRight(lastChunk, oldLen, dataLen)
 
   if lastChunk.isNil:
     return
 
   buf.releaseChunk(lastChunk)
 
-proc append*(buf: var IOBuf,
-  data: openArray[byte], extendBuf: static[bool] = false) {.inline.} =
-  buf.append(data[0].getAddr, data.len, extendBuf)
+proc append*(buf: var IOBuf, data: openArray[byte]) {.inline.} =
+  buf.enqueueSlowCopyRight(data[0].getAddr, data.len)
 
-proc append*(buf: var IOBuf,
-  data: Slice2[byte], extendBuf: static[bool] = false) {.inline.} =
-  buf.append(data.leftAddr, data.len, extendBuf)
+proc append*(buf: var IOBuf, data: Slice2[byte]) {.inline.} =
+  buf.enqueueSlowCopyRight(data.leftAddr, data.len)
 
 proc append*(buf: var IOBuf, data: sink seq[byte]) {.inline.} =
   let dataLen = data.len
   var chunk = newChunk(move data)
-  buf.internalEnqueueRight(move chunk, 0, dataLen, false)
+  buf.enqueueZeroCopyRight(move chunk, 0, dataLen)
 
 proc append*(buf: var IOBuf, data: IOBuf) {.inline.} =
   for idx in 0..<data.queueSize:
-    buf.internalEnqueueRight(data.storage[data.index(idx)], false)
+    buf.enqueueZeroCopyRight(data.storage[data.index(idx)])
 
 proc append*(buf: var IOBuf, data: byte) {.inline.} =
   var lastChunk = sharedTlsChunk()
   let oldLen = lastChunk.len
-  let writeAddr = cast[uint](lastChunk.leftAddr) + uint(oldLen)
+  let writeAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(oldLen))
   cast[ptr byte](writeAddr)[] = data
 
   lastChunk.extendLen(1)
-  buf.internalEnqueueRight(move lastChunk, oldLen, 1, true)
+
+  if buf.extendAdjacencyRegionRight(writeAddr, 1):
+    return
+
+  buf.enqueueZeroCopyRight(move lastChunk, oldLen, 1)
 
 proc whereRegion(buf: IOBuf,
   where: int, reverseSearch: static[bool] = false): (int, int) {.inline.} =
@@ -351,30 +327,18 @@ proc internalDequeueAdjustRight*(buf: var IOBuf,
   buf.queueSize = int32(idx + 1)
 
 proc discardLeft*(buf: var IOBuf, size: int) {.inline.} =
-  if buf.queueSize > 0:
+  if buf.queueSize > 0 and size > 0:
     if size >= buf.len:
-      resetStorage(buf, 0 ..< buf.queueSize)
-
-      buf.len = 0
-      buf.queueSize = 0
-      buf.queueStart = 0
-      return
-
-    if size > 0:
+      buf.clear()
+    else:
       let (idx, offset) = buf.whereRegion(size)
       buf.internalDequeueAdjustLeft(idx, offset, size)
 
 proc discardRight*(buf: var IOBuf, size: int) {.inline.} =
-  if buf.queueSize > 0:
+  if buf.queueSize > 0 and size > 0:
     if size >= buf.len:
-      resetStorage(buf, 0 ..< buf.queueSize)
-
-      buf.len = 0
-      buf.queueSize = 0
-      buf.queueStart = 0
-      return
-
-    if size > 0:
+      buf.clear()
+    else:
       let (idx, offset) = buf.whereRegion(size, reverseSearch = true)
       buf.internalDequeueAdjustRight(idx, offset, size)
 
@@ -425,6 +389,7 @@ proc `=copy`*(buf: var IOBuf, b: IOBuf) {.inline.} =
   else:
     reset(buf.inlineStorage)
 
+  buf.queueSize = 0
   buf.queueStart = 0
 
   buf.reserveQueueStorage(b.queueSize)
@@ -456,7 +421,7 @@ proc `[]`*[U, V: Ordinal](buf: IOBuf, x: HSlice[U, V]): IOBuf {.inline.} =
   if buf.queueSize > 0:
     var (idx, len) = buf.whereRegion(a)
     var region = buf.storage[buf.index(idx)][len..^1]
-    result.internalEnqueueRight(region, extendBuf = false)
+    result.enqueueZeroCopyRight(region)
 
     var left = L - region.len
 
@@ -465,9 +430,8 @@ proc `[]`*[U, V: Ordinal](buf: IOBuf, x: HSlice[U, V]): IOBuf {.inline.} =
 
       region = buf.storage[buf.index(idx)]
       if left < region.len:
-        result.internalEnqueueRight(region[0..<left], extendBuf = false)
+        result.enqueueZeroCopyRight(region[0..<left])
         break
 
       dec left, region.len
-
-      result.internalEnqueueRight(region, extendBuf = false)
+      result.enqueueZeroCopyRight(region)
