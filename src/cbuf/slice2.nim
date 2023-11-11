@@ -22,11 +22,17 @@ proc slice*(T: typedesc,
   result.data = cast[ptr UncheckedArray[T]](cast[uint](data) + uint(offset *
       sizeof(T)))
 
+proc slice*(T: typedesc,
+  data: pointer, len: int): Slice2[T] {.inline.} =
+
+  result.len = len
+  result.data = cast[ptr UncheckedArray[T]](data)
+
 proc slice*[T](d: ptr UncheckedArray[T], len: int): Slice2[T] {.inline.} =
-  slice(T, d, 0, len)
+  slice(T, d, len)
 
 proc slice*[T](d: openArray[T]): Slice2[T] {.inline.} =
-  slice(T, d[0].getAddr, 0, d.len)
+  slice(T, d[0].getAddr, d.len)
 
 proc toSeq*[T](s: Slice2[T]): seq[T] {.inline.} =
   result.add(s.toOpenArray())
