@@ -15,15 +15,18 @@ template `[]`*[T](s: Slice2[T], idx: Natural): var T =
 template `[]`*[T](s: Slice2[T], idx: BackwardsIndex): var T =
   s.data[s.len - int(idx)]
 
-proc initSlice*(T: typedesc,
-  data2: pointer, offset2, len2: int): Slice2[T] {.inline.} =
+proc slice*(T: typedesc,
+  data: pointer, offset, len: int): Slice2[T] {.inline.} =
 
-  result.len = len2
-  result.data = cast[ptr UncheckedArray[T]](cast[uint](data2) + uint(offset2 *
+  result.len = len
+  result.data = cast[ptr UncheckedArray[T]](cast[uint](data) + uint(offset *
       sizeof(T)))
 
+proc slice*[T](d: ptr UncheckedArray[T], len: int): Slice2[T] {.inline.} =
+  slice(T, d, 0, len)
+
 proc slice*[T](d: openArray[T]): Slice2[T] {.inline.} =
-  initSlice(T, d[0].getAddr, 0, d.len)
+  slice(T, d[0].getAddr, 0, d.len)
 
 proc toSeq*[T](s: Slice2[T]): seq[T] {.inline.} =
   result.add(s.toOpenArray())
@@ -51,7 +54,7 @@ proc `[]`*[T; U, V: Ordinal](s: Slice2[T], x: HSlice[U, V]): Slice2[T] =
   let L = (s ^^ x.b) - a + 1
 
   checkSliceOp(s.len, a, a + L)
-  initSlice(T, s.data, a, L)
+  slice(T, s.data, a, L)
 
 template equalsImpl(t) {.dirty.} =
   proc `==`*[T](s: Slice2[T], d: t[T]): bool =

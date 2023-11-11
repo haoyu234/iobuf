@@ -14,12 +14,16 @@ type
     chunkQueue: InstruQueue
 
   Chunk* = ref ChunkObj
-  ChunkObj2 = object of Chunk
+  ChunkObj2 = object of ChunkObj
   Chunk2 = ref ChunkObj2
 
-  ChunkObj3 = object of Chunk
+  ChunkObj3 = object of ChunkObj
     data: seq[byte]
   Chunk3 = ref ChunkObj3
+
+proc `=destroy`(chunk: ChunkObj2) {.`fix=destroy(var T)`.} =
+
+  c_free(ChunkObj(chunk).storage)
 
 template initChunk*(result: Chunk,
   storage2: pointer, len2, capacity2: int) =
@@ -33,10 +37,6 @@ proc newChunk*(storage2: pointer, len2, capacity2: int): Chunk {.inline.} =
 
   new (result)
   result.initChunk(storage2, len2, capacity2)
-
-proc `=destroy`(chunk: ChunkObj2) {.`fix=destroy(var T)`.} =
-
-  c_free(ChunkObj(chunk).storage)
 
 proc newChunk*(capacity: int): Chunk {.inline.} =
   var chunk = new(Chunk2)
@@ -90,8 +90,9 @@ proc dequeueChunk*(chunk: Chunk): Chunk {.inline.} =
     GC_unref(result)
 
 proc enqueueChunk*(chunk, nodeBuf: sink Chunk) {.inline.} =
-  GC_ref(nodeBuf)
-  chunk.chunkQueue.insertBack(nodeBuf.chunkQueue.InstruQueueNode)
+  if nodeBuf.chunkQueue.isEmpty:
+    GC_ref(nodeBuf)
+    chunk.chunkQueue.insertBack(nodeBuf.chunkQueue.InstruQueueNode)
 
 template toOpenArray*(chunk: Chunk): openArray[byte] =
   cast[ptr UncheckedArray[byte]](chunk.storage).toOpenArray(0, chunk.len - 1)

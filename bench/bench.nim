@@ -38,14 +38,14 @@ proc readBenchBuf() =
 proc writeBenchBuf(data: openArray[byte]) =
   var buf = initBuf()
 
-  template append(size): int =
+  template appendZeroCopy(size): int =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.enqueueZeroCopyRight(addr(data[offset]), left)
+    buf.appendZeroCopy(addr(data[offset]), left)
     left
 
-  benchLoop(append, SIZE)
+  benchLoop(appendZeroCopy, SIZE)
 
   let file = open("/dev/null", FileMode.fmWrite)
   let fd = file.getFileHandle
@@ -59,14 +59,14 @@ proc writeBenchBuf(data: openArray[byte]) =
 proc writeBenchBuf2(data: openArray[byte]) =
   var buf = initBuf()
 
-  template append(size): int =
+  template appendZeroCopy(size): int =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.enqueueZeroCopyRight(addr(data[offset]), left)
+    buf.appendZeroCopy(addr(data[offset]), left)
     left
 
-  benchLoop(append, SIZE)
+  benchLoop(appendZeroCopy, SIZE)
 
   let file = open("/dev/null", FileMode.fmWrite)
   let fd = file.getFileHandle
@@ -108,13 +108,13 @@ proc writeBenchSeq2(data: openArray[byte]) =
 
   var buf = newSeq[byte]()
 
-  template append(size): int =
+  template appendZeroCopy(size): int =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     buf.add(data.toOpenArray(offset, left - 1))
     left
 
-  benchLoop(append, SIZE)
+  benchLoop(appendZeroCopy, SIZE)
 
   template body(size): int =
     file.writeBuffer(addr(buf[size]), SIZE - size)
@@ -157,6 +157,6 @@ proc bench(tp: BenchTp, info: string) =
 bench(ReadBenchSeq, "read * N")
 bench(ReadBenchIOBuf, "readv")
 bench(WriteBenchSeq, "write * N")
-bench(WriteBenchSeq2, "append, write")
-bench(WriteBenchIOBuf, "append, writev")
+bench(WriteBenchSeq2, "appendCopy, write")
+bench(WriteBenchIOBuf, "appendZeroCopy, writev")
 bench(WriteBenchIOBuf2, "writev")

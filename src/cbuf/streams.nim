@@ -28,7 +28,7 @@ proc readDataStrImpl(s: Stream, buffer: var string, slice: Slice[int]): int =
 
   result = min(slice.b + 1 - slice.a, readerStream.buf[].len)
   if result > 0:
-    readerStream.buf[].readLeft(buffer[slice.a].getAddr, result)
+    readerStream.buf[].readLeftCopy(buffer[slice.a].getAddr, result)
   else:
     result = 0
 
@@ -37,7 +37,7 @@ proc readDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
   result = min(bufLen, readerStream.buf[].len)
 
   if result > 0:
-    readerStream.buf[].readLeft(buffer, result)
+    readerStream.buf[].readLeftCopy(buffer, result)
   else:
     result = 0
 
@@ -46,7 +46,7 @@ proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
   result = min(bufLen, readerStream.buf[].len)
 
   if result > 0:
-    readerStream.buf[].peekLeft(buffer, result)
+    readerStream.buf[].peekLeftCopy(buffer, result)
   else:
     result = 0
 
@@ -55,8 +55,7 @@ proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
   if bufLen <= 0:
     return
 
-  writerStream.buf[].append(
-    cast[ptr UncheckedArray[byte]](buffer).toOpenArray(0, bufLen - 1))
+  writerStream.buf[].appendCopy(buffer, bufLen)
 
 proc readerStream*(buf: ptr IOBuf): ReaderStream {.inline.} =
   new (result)

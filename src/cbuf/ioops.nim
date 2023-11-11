@@ -4,6 +4,7 @@ import slice2
 import intern/tls
 import intern/chunk
 import intern/deprecated
+import intern/iobuf
 
 const MAX_IOVEC_NUM = 64
 
@@ -25,7 +26,7 @@ when defined(linux):
       var chunk = if size >= DEFAULT_LARGE_CHUNK_SIZE and left >= DEFAULT_LARGE_CHUNK_SIZE:
         newChunk(DEFAULT_LARGE_CHUNK_SIZE)
       else:
-        buf.allocChunk()
+        InternIOBuf(buf).allocChunk()
 
       let len = min(chunk.leftSpace(), left)
       inc size, len
@@ -58,11 +59,11 @@ when defined(linux):
           vecChunk[idx].extendLen(len)
 
           when extendBuf:
-            if buf.extendAdjacencyRegionRight(vecBuf[idx].iov_base, len):
+            if InternIOBuf(buf).extendAdjacencyRegionRight(vecBuf[idx].iov_base, len):
               break appendBufScope
 
-          buf.enqueueZeroCopyRight(vecChunk[idx], oldLen, len)
-      buf.releaseChunk(move vecChunk[idx])
+          InternIOBuf(buf).enqueueZeroCopyRight(vecChunk[idx], oldLen, len)
+      InternIOBuf(buf).releaseChunk(move vecChunk[idx])
 
     appendBuf(0, true)
 
@@ -104,10 +105,10 @@ when defined(linux):
       let dataLen = int(vecBuf[idx].iov_len)
 
       if size < dataLen:
-        buf.internalDequeueAdjustLeft(idx, size, result)
+        InternIOBuf(buf).dequeueAdjustLeft(idx, size, result)
         break
       elif size == dataLen:
-        buf.internalDequeueAdjustLeft(idx + 1, 0, result)
+        InternIOBuf(buf).dequeueAdjustLeft(idx + 1, 0, result)
         break
 
       dec size, dataLen
