@@ -1,7 +1,6 @@
 import std/unittest
 
 import cbuf
-import cbuf/intern/region
 import cbuf/intern/deprecated
 
 const SIZE = 100
@@ -12,22 +11,23 @@ for i in 0 ..< SIZE:
 
 let slice = data.slice()
 
-test "append":
+test "appendZeroCopy":
 
   const N = 3
   var buf = initBuf()
 
   for _ in 0 ..< N:
-    buf.append(slice)
-
+    buf.appendCopy(slice)
+  
   var num = 0
 
-  for region in buf.regions:
-    let slice = region.toOpenArray().slice()
-    inc num, slice.len
+  for slice2 in buf:
+    inc num, slice2.len
 
   check buf.len == num
   check N * SIZE == num
+
+  buf.clear()
 
 test "slice":
 
@@ -37,18 +37,17 @@ test "slice":
 
   for _ in 0 ..< N:
     data2.add(slice.toOpenArray())
-    buf.append(slice)
+    buf.appendCopy(slice)
 
-  let buf2 = buf[0 ..< data2.len]
-  let data3 = buf2.toSeq()
+  let data3 = buf.toSeq()
 
-  check buf2.len == data2.len
+  check buf.len == data2.len
   check data3 == data2
 
 test "discard":
 
   var buf = initBuf()
-  buf.append(slice.toOpenArray())
+  buf.appendCopy(slice.toOpenArray())
 
   buf.discardLeft(1)
 
@@ -68,7 +67,7 @@ test "discard":
   check buf.toSeq() == slice[(1 + half)..^2]
 
   buf.clear()
-  buf.append(slice.toOpenArray())
+  buf.appendCopy(slice.toOpenArray())
 
   buf.discardRight(half)
 
@@ -80,18 +79,20 @@ test "readLeft":
   var buf = initBuf()
   var data3: array[SIZE - 2, byte]
 
-  buf.append(slice.toOpenArray())
+  buf.appendCopy(slice.toOpenArray())
   check buf.len == slice.len
 
-  buf.peekLeft(data3[0].getAddr, SIZE - 2)
+  buf.peekLeftCopy(data3[0].getAddr, SIZE - 2)
   check buf.len == slice.len
   check data3.slice() == slice[0..^3]
 
-  buf.readLeft(data3[0].getAddr, SIZE - 2)
+  buf.readLeftCopy(data3[0].getAddr, SIZE - 2)
   check buf.len == 2
   check data3.slice() == slice[0..^3]
 
   buf.discardLeft(1)
-  buf.readLeft(data3[0].getAddr, 1)
+
+  buf.readLeftCopy(data3[0].getAddr, 1)
+
   check buf.len == 0
   check data3[0] == slice[slice.len - 1]

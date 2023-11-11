@@ -14,7 +14,7 @@ for i in 0 ..< SIZE:
 test "readerStream":
 
   var buf = initBuf()
-  buf.append(data)
+  buf.appendZeroCopy(data)
 
   var data2 = byte(0)
   var reader = readerStream(buf.getAddr)
