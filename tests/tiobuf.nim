@@ -1,6 +1,8 @@
 import std/unittest
+import std/sequtils
 
 import cbuf
+import cbuf/intern/chunk
 import cbuf/intern/deprecated
 
 const SIZE = 100
@@ -11,96 +13,152 @@ for i in 0 ..< SIZE:
 
 let slice = data.slice()
 
-test "appendZeroCopy":
+test "append":
 
-  const N = 3
   var buf = initBuf()
 
-  for _ in 0 ..< N:
+  let num = DEFAULT_CHUNK_SIZE div SIZE
+  for _ in 0 ..< num:
     buf.appendCopy(slice)
+    buf.appendZeroCopy(data[0].getAddr, data.len)
+    buf.appendCopy(data[0].getAddr, data.len)
 
-  var num = 0
+  assert buf.len == data.len * num * 3
 
-  for slice2 in buf:
-    inc num, slice2.len
+  let data2 = buf.toSeq
+  for idx in 0 ..< num * 3:
+    let start = idx * data.len
+    let s = slice(data2, start, data.len)
+    check data == s
 
-  check buf.len == num
-  check N * SIZE == num
-
-  buf.clear()
-
-test "slice":
-
-  const N = 3
-  var buf = initBuf()
-  var data2 = newSeq[byte]()
-
-  for _ in 0 ..< N:
-    data2.add(slice.toOpenArray())
-    buf.appendCopy(slice)
-
-  let data3 = buf.toSeq()
-
-  check buf.len == data2.len
-  check data3 == data2
-
-test "discard":
+test "consumeLeft Empty":
 
   var buf = initBuf()
-  buf.appendCopy(slice.toOpenArray())
+  var data2: array[SIZE * 2, byte]
 
-  buf.discardLeft(1)
+  # peek empty buf
+  check buf.peekLeftCopy(data2[0].getAddr, 0) == 0
+  check buf.peekLeftCopy(data2[0].getAddr, SIZE + 1) == 0
+  check buf.peekLeftCopy(data2[0].getAddr, -1) == 0
 
-  check buf.len == slice.len - 1
-  check buf.toSeq() == slice[1..^1]
+  # read empty buf
+  check buf.readLeftCopy(data2[0].getAddr, 0) == 0
+  check buf.readLeftCopy(data2[0].getAddr, SIZE + 1) == 0
+  check buf.readLeftCopy(data2[0].getAddr, -1) == 0
 
-  buf.discardRight(1)
-
-  check buf.len == slice.len - 2
-  check buf.toSeq() == slice[1..^2]
-
-  let half = slice.len div 2
-
-  buf.discardLeft(half)
-
-  check buf.len == slice.len - half - 2
-  check buf.toSeq() == slice[(1 + half)..^2]
-
-  buf.clear()
-  buf.appendCopy(slice.toOpenArray())
-
-  buf.discardRight(half)
-
-  check buf.len == slice.len - half
-  check buf.toSeq() == slice[0..^(half + 1)]
-
-test "readLeft":
+test "consumeRight Empty":
 
   var buf = initBuf()
-  var data3: array[SIZE - 2, byte]
+  var data2: array[SIZE * 2, byte]
 
-  buf.appendCopy(slice.toOpenArray())
-  check buf.len == slice.len
+  # peek empty buf
+  check buf.peekRightCopy(data2[0].getAddr, 0) == 0
+  check buf.peekRightCopy(data2[0].getAddr, SIZE + 1) == 0
+  check buf.peekRightCopy(data2[0].getAddr, -1) == 0
 
-  buf.peekLeftCopy(data3[0].getAddr, SIZE - 2)
-  check buf.len == slice.len
-  check data3.slice() == slice[0..^3]
+  # read empty buf
+  check buf.readRightCopy(data2[0].getAddr, 0) == 0
+  check buf.readRightCopy(data2[0].getAddr, SIZE + 1) == 0
+  check buf.readRightCopy(data2[0].getAddr, -1) == 0
 
-  buf.readLeftCopy(data3[0].getAddr, SIZE - 2)
-  check buf.len == 2
-  check data3.slice() == slice[0..^3]
+test "consumeLeft":
 
-test "bound":
-
-  var data = byte(0)
   var buf = initBuf()
+  let data2: array[2, byte] = [byte(1), 2]
+  var data3: array[20, byte]
+  var data4 = newSeq[byte]()
 
-  buf.appendZeroCopy(byte(112))
-  buf.readRightCopy(data.getAddr, 1)
+  template append() =
+    buf.appendZeroCopy(data2.getAddr, data2.len)
+    data4.add(toOpenArray(cast[ptr UncheckedArray[byte]](data2.getAddr), 0,
+        data2.len - 1))
+
+  template checkPeekLeft(size) =
+    zeroMem(data3[0].getAddr, data3.len)
+    check buf.peekLeftCopy(data3.getAddr, size) == size
+
+    let s = 0 ..< size
+    check data4[s] == data3[s]
+    check data4 == buf.toSeq
+
+  template checkReadLeft(size) =
+    zeroMem(data3[0].getAddr, data3.len)
+    check buf.readLeftCopy(data3.getAddr, size) == size
+
+    let s = 0 ..< size
+    check data4[s] == data3[s]
+    data4.delete(s)
+    check data4 == buf.toSeq
+
+  template checkOp(size) =
+    checkPeekLeft(size)
+    checkReadLeft(size)
+
+  for _ in 0..12:
+    append()
+
+  checkOp(1)
+  checkOp(data2.len)
+  checkOp(data2.len - 1)
+  checkOp(data2.len + 1)
+  checkOp(data2.len)
+  checkOp(data2.len * 2 - 1)
+  checkOp(data2.len * 2)
+  checkOp(data2.len)
+  checkOp(data2.len * 2 + 1)
+  checkOp(data2.len)
+  checkOp(1)
+
+  check data4.len == 0
   check buf.len == 0
-  check data == byte(112)
 
-  buf.appendZeroCopy(byte(223))
-  buf.readLeftCopy(data.getAddr, 1)
+test "consumeRight":
+
+  var buf = initBuf()
+  let data2: array[2, byte] = [byte(1), 2]
+  var data3: array[20, byte]
+  var data4 = newSeq[byte]()
+
+  template append() =
+    buf.appendZeroCopy(data2.getAddr, data2.len)
+    data4.add(toOpenArray(cast[ptr UncheckedArray[byte]](data2.getAddr), 0,
+        data2.len - 1))
+
+  template checkPeekRight(size) =
+    zeroMem(data3[0].getAddr, data3.len)
+    check buf.peekRightCopy(data3.getAddr, size) == size
+
+    let s = (data4.len - size) ..< data4.len
+    check data4[s] == data3[0 ..< size]
+    check data4 == buf.toSeq
+
+  template checkReadRight(size) =
+    zeroMem(data3[0].getAddr, data3.len)
+    check buf.readRightCopy(data3.getAddr, size) == size
+
+    let s = (data4.len - size) ..< data4.len
+    check data4[s] == data3[0 ..< size]
+    data4.delete((data4.len - size) ..< data4.len)
+    check data4 == buf.toSeq
+
+  template checkOp(size) =
+    checkPeekRight(size)
+    checkReadRight(size)
+
+  for _ in 0..12:
+    append()
+
+  checkOp(1)
+  checkOp(data2.len)
+  checkOp(data2.len - 1)
+  checkOp(data2.len + 1)
+  checkOp(data2.len)
+  checkOp(data2.len * 2 - 1)
+  checkOp(data2.len * 2)
+  checkOp(data2.len)
+  checkOp(data2.len * 2 + 1)
+  checkOp(data2.len)
+  checkOp(1)
+
+  check data4.len == 0
   check buf.len == 0
-  check data == byte(223)

@@ -66,77 +66,77 @@ proc appendZeroCopy*(buf: var IOBuf, data: byte) {.inline.} =
 proc discardLeft*(buf: var IOBuf, size: int) {.inline.} =
   InternIOBuf(buf).dequeueLeft(size)
 
-proc peekLeftCopy*(buf: IOBuf, data: pointer, size: int) {.inline.} =
+proc peekLeftCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  var written = 0
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
   InternIOBuf(buf).consumeLeft(size, false):
-    copyMem(data2[written].getAddr, it.leftAddr, it.len)
-    inc written, it.len
+    copyMem(data2[result].getAddr, it.leftAddr, it.len)
+    inc result, it.len
 
-proc peekLeft*(buf: IOBuf, into: var IOBuf, size: int) {.inline.} =
+proc peekLeft*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
   InternIOBuf(buf).consumeLeft(size, false):
     InternIOBuf(into).enqueueZeroCopyRight(it)
+    inc result, it.len
 
-proc readLeftCopy*(buf: var IOBuf, data: pointer, size: int) {.inline.} =
+proc readLeftCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  var written = 0
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
   InternIOBuf(buf).consumeLeft(size, true):
-    copyMem(data2[written].getAddr, it.leftAddr, it.len)
-    inc written, it.len
+    copyMem(data2[result].getAddr, it.leftAddr, it.len)
+    inc result, it.len
 
-proc readLeft*(buf, into: var IOBuf, size: int) {.inline.} =
+proc readLeft*(buf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
   InternIOBuf(buf).consumeLeft(size, true):
     InternIOBuf(into).enqueueZeroCopyRight(move it)
+    inc result, it.len
 
 proc discardRight*(buf: var IOBuf, size: int) {.inline.} =
   InternIOBuf(buf).dequeueRight(size)
 
-proc peekRightCopy*(buf: IOBuf, data: pointer, size: int) {.inline.} =
+proc peekRightCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  var written = 0
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
   InternIOBuf(buf).consumeRight(size, false):
-    copyMem(data2[written].getAddr, it.leftAddr, it.len)
-    inc written, it.len
+    copyMem(data2[result].getAddr, it.leftAddr, it.len)
+    inc result, it.len
 
-proc peekRight*(buf: IOBuf, into: var IOBuf, size: int) {.inline.} =
+proc peekRight*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
   InternIOBuf(buf).consumeRight(size, false):
     InternIOBuf(into).enqueueZeroCopyRight(it)
+    inc result, it.len
 
-proc readRightCopy*(buf: var IOBuf, data: pointer, size: int) {.inline.} =
+proc readRightCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  var written = 0
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
   InternIOBuf(buf).consumeRight(size, true):
-    copyMem(data2[written].getAddr, it.leftAddr, it.len)
-    inc written, it.len
+    copyMem(data2[result].getAddr, it.leftAddr, it.len)
+    inc result, it.len
 
-proc readRight*(buf, into: var IOBuf, size: int) {.inline.} =
+proc readRight*(buf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
   InternIOBuf(buf).consumeRight(size, true):
     InternIOBuf(into).enqueueZeroCopyRight(move it)
+    inc result, it.len
