@@ -4,20 +4,20 @@ import region
 import alloc
 
 type
-  QueueIndex* = distinct int
-  QueueStorage* = distinct ptr UncheckedArray[Region]
+  StorageIndex* = distinct int
+  Storage*[T] = distinct ptr UncheckedArray[T]
 
-template `[]`*(storage: QueueStorage, index: QueueIndex): var Region =
+template `[]`*[T](storage: Storage[T], index: StorageIndex): var T =
   distinctBase(storage)[distinctBase(index)]
 
-template `[]=`*(storage: QueueStorage, index: QueueIndex, data: Region) =
+template `[]=`*[T](storage: Storage[T], index: StorageIndex, data: T) =
   distinctBase(storage)[distinctBase(index)] = data
 
-converter autoToPointer*(storage: QueueStorage): pointer {.inline.} =
+converter autoToPointer*[T](storage: Storage[T]): pointer {.inline.} =
   cast[pointer](distinctBase(storage))
 
-template allocStorage*(capacity: int): QueueStorage =
-  cast[QueueStorage](c_calloc(csize_t(sizeof(Region)), csize_t(capacity)))
+template allocStorage*[T](capacity: int): Storage[T] =
+  cast[Storage[T]](c_calloc(csize_t(sizeof(T)), csize_t(capacity)))
 
-template freeStorage*(storage: QueueStorage) =
+template freeStorage*[T](storage: Storage[T]) =
   c_free(storage)
