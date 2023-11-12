@@ -130,7 +130,8 @@ proc initBuf*(result: var InternIOBuf) {.inline.} =
   result.queueCapacity = 2
   result.queueStorage = QueueStorage(nil)
 
-proc `=destroy`(buf: var InternIOBuf) {.inline, raises: [Exception], `fix=destroy(var T)`.} =
+proc `=destroy`(buf: var InternIOBuf) {.inline, raises: [Exception],
+    `fix=destroy(var T)`.} =
   var lastChunk = buf.lastChunk
   while lastChunk != nil:
     lastChunk = lastChunk.dequeueChunk()
@@ -275,7 +276,7 @@ proc enqueueSlowCopyRight*(buf: var InternIOBuf, data: pointer,
     lastChunk.extendLen(dataLen)
 
     buf.enqueueZeroCopyRight(lastChunk, oldLen, dataLen)
-  
+
   if lastChunk.isNil:
     return
 
@@ -284,13 +285,14 @@ proc enqueueSlowCopyRight*(buf: var InternIOBuf, data: pointer,
 proc dequeueAdjustLeft*(buf: var InternIOBuf,
   idx, offset, size: int) {.inline.} =
 
+  assert size <= buf.len
+
   when defined(debug):
     var size2 = offset
     for idx2 in 0..<idx:
       inc size2, buf.storage[buf.index(idx2)].len
     assert size2 == size
 
-  buf.len = max(0, buf.len - size)
   if offset > 0:
     buf.storage[buf.index(idx)].discardLeft(offset)
 
@@ -300,8 +302,12 @@ proc dequeueAdjustLeft*(buf: var InternIOBuf,
     buf.queueStart = int32((buf.queueStart + idx) mod buf.queueCapacity)
     dec buf.queueSize, idx
 
+  dec buf.len, size
+
 proc dequeueAdjustRight*(buf: var InternIOBuf,
   idx, offset, size: int) {.inline.} =
+
+  assert size <= buf.len
 
   when defined(debug):
     var size2 = offset
@@ -309,16 +315,17 @@ proc dequeueAdjustRight*(buf: var InternIOBuf,
       inc size2, buf.storage[buf.index(idx2)].len
     assert size2 == size
 
-  buf.len = max(0, buf.len - size)
   resetStorage(buf, int32(idx + 1) ..< buf.queueSize)
 
   buf.storage[buf.index(idx)].discardRight(offset)
   buf.queueSize = int32(idx + 1)
 
-proc locate*(buf: InternIOBuf,
+  dec buf.len, size
+
+proc locate(buf: InternIOBuf,
   offset: int, reverseSearch: static[bool] = false): LocatePos {.inline.} =
 
-  assert offset <= buf.len
+  assert offset < buf.len
 
   var searchPos = offset
   let upperBound = buf.queueSize - 1
@@ -344,9 +351,7 @@ proc locate*(buf: InternIOBuf,
 
     dec searchPos, dataLen
 
-  result.idx = buf.queueSize
-  result.left = 0
-  result.right = 0
+  assert false
 
 proc dequeueLeft*(buf: var InternIOBuf, size: int) {.inline.} =
   if buf.queueSize > 0 and size > 0:
@@ -379,114 +384,66 @@ proc right*(buf: InternIOBuf): InternPos {.inline.} =
     result.idx = buf.queueSize - 1
     result.offset = buf.storage[buf.index(^1)].len
 
-template processSlice*(buf: InternIOBuf, x: InternSlice, process: untyped) =
+template consumeSlice*(buf: InternIOBuf, x: InternSlice, consumeBuf: untyped) =
   var idx {.inject.} = x.start.idx
 
   if x.start.offset > 0:
     var it {.inject.} =
       buf.storage[buf.index(idx)][x.start.offset .. ^1]
-    process
+    consumeBuf
 
     inc idx
 
   while idx < x.stop.idx:
     template it: untyped {.inject.} =
       buf.storage[buf.index(idx)]
-    process
+    consumeBuf
 
     inc idx
 
   if idx == x.stop.idx and x.stop.offset > 0:
     var it {.inject.} =
       buf.storage[buf.index(idx)][0 ..< x.stop.offset]
-    process
+    consumeBuf
 
-template moveOrCopy(data: untyped, dequeue: static[bool]): untyped =
-  when dequeue:
-    move data
-  else:
-    data
+template consumeLeft*(buf, size, dequeueLeft, consumeBuf) =
+  if size >= buf.len:
+    for idx in 0 ..< buf.queueSize:
+      template it: untyped {.inject.} =
+        buf.storage[buf.index(idx)]
 
-proc peekOrDequeueLeft*(buf,
-  into: var InternIOBuf, size: int, dequeueLeft: static[bool]) =
-
-  if buf.queueSize > 0 and size > 0:
-    if size >= buf.len:
-      for idx in 0 ..< buf.queueSize:
-        into.enqueueZeroCopyRight(
-          moveOrCopy(buf.storage[buf.index(idx)], dequeueLeft))
-
-      when dequeueLeft:
-        buf.fastClear()
-      return
-
-    let locatePos = buf.locate(size)
-    let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-
-    processSlice(buf, buf.left ..< rightPos):
-      into.enqueueZeroCopyRight(moveOrCopy(it, dequeueLeft))
+      consumeBuf
 
     when dequeueLeft:
-      buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
+      buf.fastClear()
+    return
 
-proc peekOrDequeueRight*(buf,
-  into: var InternIOBuf, size: int, dequeueRight: static[bool]) =
+  let locatePos = buf.locate(size)
+  let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
 
-  if buf.queueSize > 0 and size > 0:
-    if size >= buf.len:
-      for idx in 0 ..< buf.queueSize:
-        into.enqueueZeroCopyRight(
-          moveOrCopy(buf.storage[buf.index(idx)], dequeueRight))
+  consumeSlice(buf, buf.left ..< rightPos):
+    consumeBuf
 
-      when dequeueRight:
-        buf.fastClear()
-      return
+  when dequeueLeft:
+    buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
 
-    let locatePos = buf.locate(size, reverseSearch = true)
-    let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
+template consumeRight*(buf, size, dequeueRight, consumeBuf) =
+  if size >= buf.len:
+    for idx in 0 ..< buf.queueSize:
+      template it: untyped {.inject.} =
+        buf.storage[buf.index(idx)]
 
-    processSlice(buf, leftPos ..< buf.right):
-      into.enqueueZeroCopyRight(moveOrCopy(it, dequeueRight))
-
-    when dequeueRight:
-      buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
-
-proc peekOrDequeueSlowCopyLeft*(buf: var InternIOBuf,
-  data: pointer, size: int, dequeueLeft: static[bool]) {.inline.} =
-
-  if size > 0:
-    assert buf.len >= size
-
-    let locatePos = buf.locate(size)
-    let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-
-    var written = 0
-    let data2 = cast[ptr UncheckedArray[byte]](data)
-
-    processSlice(buf, buf.left ..< rightPos):
-      copyMem(data2[written].getAddr, it.leftAddr, it.len)
-
-      inc written, it.len
-
-    when dequeueLeft:
-      buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
-
-proc peekOrDequeueSlowCopyRight*(buf: var InternIOBuf,
-  data: pointer, size: int, dequeueRight: static[bool]) {.inline.} =
-
-  if size > 0:
-    assert buf.len >= size
-
-    let locatePos = buf.locate(size)
-    let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-
-    var written = 0
-    let data2 = cast[ptr UncheckedArray[byte]](data)
-
-    processSlice(buf, leftPos ..< buf.right):
-      copyMem(data2[written].getAddr, it.leftAddr, it.len)
-
-      inc written, it.len
+      consumeBuf
 
     when dequeueRight:
-      buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
+      buf.fastClear()
+    return
+
+  let locatePos = buf.locate(size, reverseSearch = true)
+  let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
+
+  consumeSlice(buf, leftPos ..< buf.right):
+    consumeBuf
+
+  when dequeueRight:
+    buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)

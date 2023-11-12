@@ -18,7 +18,7 @@ test "appendZeroCopy":
 
   for _ in 0 ..< N:
     buf.appendCopy(slice)
-  
+
   var num = 0
 
   for slice2 in buf:
@@ -90,9 +90,17 @@ test "readLeft":
   check buf.len == 2
   check data3.slice() == slice[0..^3]
 
-  buf.discardLeft(1)
+test "bound":
 
-  buf.readLeftCopy(data3[0].getAddr, 1)
+  var data = byte(0)
+  var buf = initBuf()
 
+  buf.appendZeroCopy(byte(112))
+  buf.readRightCopy(data.getAddr, 1)
   check buf.len == 0
-  check data3[0] == slice[slice.len - 1]
+  check data == byte(112)
+
+  buf.appendZeroCopy(byte(223))
+  buf.readLeftCopy(data.getAddr, 1)
+  check buf.len == 0
+  check data == byte(223)
