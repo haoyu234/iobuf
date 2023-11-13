@@ -3,6 +3,7 @@ import std/strformat
 
 import ../src/cbuf
 import ../src/cbuf/intern/chunk
+import ../src/cbuf/intern/deprecated
 
 const SIZE = 100000000
 
@@ -42,7 +43,7 @@ proc writeBenchBuf(data: openArray[byte]) =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.appendZeroCopy(addr(data[offset]), left)
+    buf.appendZeroCopy(data[offset].getAddr, left)
     left
 
   benchLoop(appendZeroCopy, SIZE)
@@ -63,7 +64,7 @@ proc writeBenchBuf2(data: openArray[byte]) =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.appendZeroCopy(addr(data[offset]), left)
+    buf.appendZeroCopy(data[offset].getAddr, left)
     left
 
   benchLoop(appendZeroCopy, SIZE)
@@ -85,7 +86,7 @@ proc readBenchSeq() =
   defer: file.close()
 
   template body(size): int =
-    let r = file.readBuffer(addr(buf[0]), min(SIZE - size, buf.len))
+    let r = file.readBuffer(buf[0].getAddr, min(SIZE - size, buf.len))
     data.add(buf.toOpenArray(0, r - 1))
     r
 
@@ -98,7 +99,7 @@ proc writeBenchSeq(data: openArray[byte]) =
   template body(size): int =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
-    file.writeBuffer(addr(data[offset]), left)
+    file.writeBuffer(data[offset].getAddr, left)
 
   benchLoop(body, SIZE)
 
@@ -117,7 +118,7 @@ proc writeBenchSeq2(data: openArray[byte]) =
   benchLoop(appendZeroCopy, SIZE)
 
   template body(size): int =
-    file.writeBuffer(addr(buf[size]), SIZE - size)
+    file.writeBuffer(buf[size].getAddr, SIZE - size)
 
   benchLoop(body, SIZE)
 

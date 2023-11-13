@@ -3,7 +3,7 @@ import std/nimprof
 import ../src/cbuf
 
 const SIZE = 102
-const N = 2500
+const N = 250
 
 var data = newSeqOfCap[byte](SIZE)
 

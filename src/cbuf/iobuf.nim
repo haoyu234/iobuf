@@ -1,5 +1,4 @@
 import intern/tls
-import intern/indices
 import intern/chunk
 import intern/region
 import intern/deprecated

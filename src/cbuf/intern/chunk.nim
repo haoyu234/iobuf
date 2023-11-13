@@ -21,7 +21,7 @@ type
     data: seq[byte]
   Chunk3 = ref ChunkObj3
 
-proc `=destroy`(chunk: ChunkObj2) {.`fix=destroy(var T)`.} =
+proc `=destroy`(chunk: var ChunkObj2) {.`fix=destroy(var T)`.} =
 
   c_free(ChunkObj(chunk).storage)
 
