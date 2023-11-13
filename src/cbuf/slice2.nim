@@ -28,8 +28,18 @@ proc slice*(T: typedesc,
   result.len = len
   result.data = cast[ptr UncheckedArray[T]](data)
 
+proc slice*[T](d: ptr UncheckedArray[T], offset, len: int): Slice2[T] {.inline.} =
+  slice(T, d[offset].getAddr, len)
+
 proc slice*[T](d: ptr UncheckedArray[T], len: int): Slice2[T] {.inline.} =
   slice(T, d, len)
+
+proc slice*[T](d: openArray[T], offset, len: int): Slice2[T] {.inline.} =
+  slice(T, d[offset].getAddr, len)
+
+proc slice*[T](d: openArray[T], len: int): Slice2[T] {.inline.} =
+  assert len <= d.len
+  slice(T, d[0].getAddr, len)
 
 proc slice*[T](d: openArray[T]): Slice2[T] {.inline.} =
   slice(T, d[0].getAddr, d.len)

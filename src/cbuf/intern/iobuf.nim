@@ -369,81 +369,82 @@ proc dequeueRight*(buf: var InternIOBuf, size: int) {.inline.} =
       let locatePos = buf.locate(size, reverseSearch = true)
       buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
 
-template `..<`*(a, b: InternPos): InternSlice =
-  InternSlice(
-    start: a,
-    stop: b
-  )
+template consumeRange*(buf: InternIOBuf, start, stop: InternPos,
+    consumeBuf: untyped) =
+  block consumeRangeScope:
+    var idx {.inject.} = start.idx
 
-proc left*(buf: InternIOBuf): InternPos {.inline.} =
-  result.idx = 0
-  result.offset = 0
+    if idx == stop.idx:
+      var it {.inject.} =
+        buf.storage[buf.index(idx)][start.offset ..< stop.offset]
+      consumeBuf
 
-proc right*(buf: InternIOBuf): InternPos {.inline.} =
-  if buf.queueSize > 0:
-    result.idx = buf.queueSize - 1
-    result.offset = buf.storage[buf.index(^1)].len
+      break consumeRangeScope
 
-template consumeSlice*(buf: InternIOBuf, x: InternSlice, consumeBuf: untyped) =
-  var idx {.inject.} = x.start.idx
+    if start.offset > 0:
+      var it {.inject.} =
+        buf.storage[buf.index(idx)][start.offset .. ^1]
+      consumeBuf
 
-  if x.start.offset > 0:
-    var it {.inject.} =
-      buf.storage[buf.index(idx)][x.start.offset .. ^1]
-    consumeBuf
+      inc idx
 
-    inc idx
-
-  while idx < x.stop.idx:
-    template it: untyped {.inject.} =
-      buf.storage[buf.index(idx)]
-    consumeBuf
-
-    inc idx
-
-  if idx == x.stop.idx and x.stop.offset > 0:
-    var it {.inject.} =
-      buf.storage[buf.index(idx)][0 ..< x.stop.offset]
-    consumeBuf
-
-template consumeLeft*(buf, size, dequeueLeft, consumeBuf) =
-  if size >= buf.len:
-    for idx in 0 ..< buf.queueSize:
+    while idx < stop.idx:
       template it: untyped {.inject.} =
         buf.storage[buf.index(idx)]
+      consumeBuf
 
+      inc idx
+
+    if stop.offset > 0:
+      var it {.inject.} =
+        buf.storage[buf.index(idx)][0 ..< stop.offset]
+      consumeBuf
+
+template consumeLeft*(buf, size, dequeueLeft, consumeBuf) =
+  block consumeLeftScope:
+    if size >= buf.len:
+      for idx in 0 ..< buf.queueSize:
+        template it: untyped {.inject.} =
+          buf.storage[buf.index(idx)]
+
+        consumeBuf
+
+      when dequeueLeft:
+        buf.fastClear()
+
+      break consumeLeftScope
+
+    let locatePos = buf.locate(size)
+    let leftPos = InternPos(idx: 0, offset: 0)
+    let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
+
+    consumeRange(buf, leftPos, rightPos):
       consumeBuf
 
     when dequeueLeft:
-      buf.fastClear()
-    return
-
-  let locatePos = buf.locate(size)
-  let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-
-  consumeSlice(buf, buf.left ..< rightPos):
-    consumeBuf
-
-  when dequeueLeft:
-    buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
+      buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
 
 template consumeRight*(buf, size, dequeueRight, consumeBuf) =
-  if size >= buf.len:
-    for idx in 0 ..< buf.queueSize:
-      template it: untyped {.inject.} =
-        buf.storage[buf.index(idx)]
+  block consumeRightScope:
+    if size >= buf.len:
+      for idx in 0 ..< buf.queueSize:
+        template it: untyped {.inject.} =
+          buf.storage[buf.index(idx)]
 
+        consumeBuf
+
+      when dequeueRight:
+        buf.fastClear()
+
+      break consumeRightScope
+
+    let locatePos = buf.locate(size, reverseSearch = true)
+    let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
+    let rightPos = InternPos(idx: buf.queueSize - 1, offset: buf.storage[
+        buf.index(^1)].len)
+
+    consumeRange(buf, leftPos, rightPos):
       consumeBuf
 
     when dequeueRight:
-      buf.fastClear()
-    return
-
-  let locatePos = buf.locate(size, reverseSearch = true)
-  let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-
-  consumeSlice(buf, leftPos ..< buf.right):
-    consumeBuf
-
-  when dequeueRight:
-    buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
+      buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)

@@ -28,27 +28,21 @@ proc readDataStrImpl(s: Stream, buffer: var string, slice: Slice[int]): int =
 
   result = min(slice.b + 1 - slice.a, readerStream.buf[].len)
   if result > 0:
-    readerStream.buf[].readLeftCopy(buffer[slice.a].getAddr, result)
+    result = readerStream.buf[].readLeftCopy(buffer[slice.a].getAddr, result)
   else:
     result = 0
 
 proc readDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
   var readerStream = ReaderStream(s)
-  result = min(bufLen, readerStream.buf[].len)
 
-  if result > 0:
-    readerStream.buf[].readLeftCopy(buffer, result)
-  else:
-    result = 0
+  if bufLen > 0:
+    result = readerStream.buf[].readLeftCopy(buffer, bufLen)
 
 proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
   var readerStream = ReaderStream(s)
-  result = min(bufLen, readerStream.buf[].len)
 
-  if result > 0:
-    readerStream.buf[].peekLeftCopy(buffer, result)
-  else:
-    result = 0
+  if bufLen > 0:
+    result = readerStream.buf[].peekLeftCopy(buffer, bufLen)
 
 proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
   var writerStream = WriterStream(s)
