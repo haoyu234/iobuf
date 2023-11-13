@@ -22,8 +22,9 @@ type
   Chunk3 = ref ChunkObj3
 
 proc `=destroy`(chunk: var ChunkObj2) {.`fix=destroy(var T)`.} =
-
-  c_free(ChunkObj(chunk).storage)
+  let storage = chunk.storage
+  if not storage.isNil:
+    c_free(storage)
 
 template initChunk*(result: Chunk,
   storage2: pointer, len2, capacity2: int) =
