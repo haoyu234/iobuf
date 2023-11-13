@@ -1,6 +1,6 @@
 import std/unittest
 
-import cbuf
+import cbuf/slice2
 import cbuf/intern/deprecated
 
 {.experimental: "views".}
@@ -50,7 +50,7 @@ test "sliceOp":
       check data[i..j] == slice[i..j]
       check slice[i..j] == data[i..j]
 
-  check slice[0 .. 1] is cbuf.Slice2[byte]
+  check slice[0 .. 1] is Slice2[byte]
 
 test "outOfBound":
 

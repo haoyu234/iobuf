@@ -1,6 +1,6 @@
 import std/unittest
 
-import cbuf
+import cbuf/slice2
 import cbuf/intern/chunk
 
 test "leftSpace":

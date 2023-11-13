@@ -1,7 +1,8 @@
 import std/unittest
 import std/sequtils
 
-import cbuf
+import cbuf/iobuf
+import cbuf/slice2
 import cbuf/intern/chunk
 import cbuf/intern/deprecated
 

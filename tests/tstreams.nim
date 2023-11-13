@@ -1,7 +1,7 @@
 import std/unittest
 import std/streams
 
-import cbuf
+import cbuf/iobuf
 import cbuf/streams
 import cbuf/intern/deprecated
 

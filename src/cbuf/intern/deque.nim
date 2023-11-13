@@ -1,6 +1,6 @@
 import std/math
+import system/ansi_c
 
-import alloc
 import deprecated
 
 const INLINE_STORAGE_CAPACITY = 2
