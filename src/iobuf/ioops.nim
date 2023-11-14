@@ -23,10 +23,7 @@ when defined(linux):
         break
 
       let left = maxSize - size
-      var chunk = if size >= DEFAULT_LARGE_CHUNK_SIZE and left >= DEFAULT_LARGE_CHUNK_SIZE:
-        newChunk(DEFAULT_LARGE_CHUNK_SIZE)
-      else:
-        InternIOBuf(buf).allocChunk()
+      var chunk = InternIOBuf(buf).allocChunk(size, left)
 
       let len = min(chunk.leftSpace(), left)
       inc size, len

@@ -6,10 +6,23 @@ import std/net
 import iobuf
 import ioops
 
+proc isDisconnectionError(lastError: OSErrorCode): bool =
+  ## Determines whether `lastError` is a disconnection error.
+  when defined(windows):
+    (lastError.int32 == WSAECONNRESET or
+       lastError.int32 == WSAECONNABORTED or
+       lastError.int32 == WSAENETRESET or
+       lastError.int32 == WSAEDISCON or
+       lastError.int32 == WSAESHUTDOWN or
+       lastError.int32 == ERROR_NETNAME_DELETED)
+  else:
+    (lastError.int32 == ECONNRESET or
+       lastError.int32 == EPIPE or
+       lastError.int32 == ENETRESET)
+
 when defined(linux):
 
-  proc readInto*(socket: AsyncFD, buf: ptr IOBuf, maxSize: int,
-                 flags = {SocketFlag.SafeDisconn}): owned(Future[int]) =
+  proc readInto*(socket: AsyncFD, buf: ptr IOBuf, maxSize: int): owned(Future[int]) =
     var retFuture = newFuture[int]("recvInto")
 
     proc cb(sock: AsyncFD): bool =
@@ -19,7 +32,7 @@ when defined(linux):
         let lastError = osLastError()
         if lastError.int32 != EINTR and lastError.int32 != EWOULDBLOCK and
            lastError.int32 != EAGAIN:
-          if flags.isDisconnectionError(lastError):
+          if isDisconnectionError(lastError):
             retFuture.complete(0)
           else:
             retFuture.fail(newException(OSError, osErrorMsg(lastError)))

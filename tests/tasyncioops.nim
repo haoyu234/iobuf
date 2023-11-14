@@ -3,9 +3,9 @@ import std/asyncdispatch
 
 import std/posix
 
-import cbuf/iobuf
-import cbuf/asyncioops
-import cbuf/intern/deprecated
+import iobuf/iobuf
+import iobuf/asyncioops
+import iobuf/intern/deprecated
 
 
 const SIZE = 100

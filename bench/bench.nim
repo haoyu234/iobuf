@@ -1,9 +1,9 @@
 import std/monotimes
 import std/strformat
 
-import ../src/cbuf
-import ../src/cbuf/intern/chunk
-import ../src/cbuf/intern/deprecated
+import ../src/iobuf
+import ../src/iobuf/intern/chunk
+import ../src/iobuf/intern/deprecated
 
 const SIZE = 100000000
 

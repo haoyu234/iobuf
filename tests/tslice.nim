@@ -1,7 +1,7 @@
 import std/unittest
 
-import cbuf/slice2
-import cbuf/intern/deprecated
+import iobuf/slice2
+import iobuf/intern/deprecated
 
 {.experimental: "views".}
 

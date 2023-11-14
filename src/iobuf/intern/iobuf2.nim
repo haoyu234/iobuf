@@ -24,13 +24,9 @@ type
     left: int
     right: int
 
-  InternPos* = object
+  InternPos = object
     idx: int
     offset: int
-
-  InternSlice* = object
-    start: InternPos
-    stop: InternPos
 
 template len*(buf: InternIOBuf): int = buf.len
 template queueSize*(buf: InternIOBuf): int = buf.queuedRegion.len
@@ -100,6 +96,12 @@ proc allocChunk*(buf: var InternIOBuf): Chunk {.inline.} =
     if not result.isFull:
       break
 
+template allocChunk*(buf: var InternIOBuf, accrued, left: int): Chunk =
+  if accrued >= DEFAULT_LARGE_CHUNK_SIZE and left >= DEFAULT_LARGE_CHUNK_SIZE:
+    newChunk(DEFAULT_LARGE_CHUNK_SIZE)
+  else:
+    buf.allocChunk()
+
 proc releaseChunk*(buf: var InternIOBuf, chunk: sink Chunk) {.inline.} =
   if not chunk.isFull:
     if not buf.lastChunk.isNil:
@@ -129,10 +131,7 @@ proc enqueueSlowCopyRight*(buf: var InternIOBuf, data: pointer,
   while written < size:
     let left = size - written
 
-    if written >= DEFAULT_LARGE_CHUNK_SIZE and left >= DEFAULT_LARGE_CHUNK_SIZE:
-      lastChunk = newChunk(DEFAULT_LARGE_CHUNK_SIZE)
-    else:
-      lastChunk = buf.allocChunk()
+    lastChunk = buf.allocChunk(written, left)
 
     let oldLen = lastChunk.len
     let writeAddr = cast[uint](lastChunk.leftAddr) + uint(oldLen)
@@ -209,20 +208,26 @@ proc locate(buf: InternIOBuf,
   assert false
 
 proc dequeueLeft*(buf: var InternIOBuf, size: int) {.inline.} =
-  if buf.len > 0 and size > 0:
-    if size >= buf.len:
-      buf.clear()
-    else:
-      let locatePos = buf.locate(size)
-      buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
+  if size <= 0 or buf.len <= 0:
+    return
+
+  if size < buf.len:
+    let locatePos = buf.locate(size)
+    buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
+    return
+
+  buf.clear()
 
 proc dequeueRight*(buf: var InternIOBuf, size: int) {.inline.} =
-  if buf.len > 0 and size > 0:
-    if size >= buf.len:
-      buf.clear()
-    else:
-      let locatePos = buf.locate(size, reverseSearch = true)
-      buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
+  if size <= 0 or buf.len <= 0:
+    return
+
+  if size < buf.len:
+    let locatePos = buf.locate(size, reverseSearch = true)
+    buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
+    return
+
+  buf.clear()
 
 template consumeRange*(buf: InternIOBuf, start, stop: InternPos,
     consumeBuf: untyped) =

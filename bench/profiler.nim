@@ -1,6 +1,6 @@
 import std/nimprof
 
-import ../src/cbuf
+import ../src/iobuf
 
 const SIZE = 102
 const N = 250

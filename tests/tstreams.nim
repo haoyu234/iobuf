@@ -1,9 +1,9 @@
 import std/unittest
 import std/streams
 
-import cbuf/iobuf
-import cbuf/streams
-import cbuf/intern/deprecated
+import iobuf/iobuf
+import iobuf/streams
+import iobuf/intern/deprecated
 
 const SIZE = 100
 
