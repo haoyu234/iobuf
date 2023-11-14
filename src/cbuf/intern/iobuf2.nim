@@ -48,16 +48,13 @@ proc initBuf*(result: var InternIOBuf) {.inline.} =
   result.len = 0
   result.lastChunk = nil
 
-proc `=destroy`(buf: var InternIOBuf) {.inline, `fix=destroy(var T)`.} =
+proc `=destroy`(buf: var InternIOBuf) {.`fix=destroy(var T)`.} =
   var lastChunk = buf.lastChunk
   while lastChunk != nil:
     lastChunk = lastChunk.dequeueChunk()
 
-  # if buf.lastChunk != nil:
-  #   `=destroy`(buf.lastChunk)
-
-  when not USE_STD_DEQUE:
-    `=destroy`(buf.queuedRegion)
+  `=destroy`(buf.lastChunk)
+  `=destroy`(buf.queuedRegion.getAddr[])
 
 proc extendAdjacencyRegionRight*(buf: var InternIOBuf, wirteAddr: pointer,
     size: int): bool {.inline.} =
