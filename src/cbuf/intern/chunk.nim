@@ -1,4 +1,5 @@
-import alloc
+import system/ansi_c
+
 import deprecated
 
 import instru/queue
