@@ -142,8 +142,7 @@ else:
     while lastChunk != nil:
       lastChunk = lastChunk.dequeueChunk()
 
-    if buf.lastChunk != nil:
-      `=destroy`(buf.lastChunk)
+    `=destroy`(buf.lastChunk)
 
     resetStorage(buf, 0 ..< buf.queueSize)
 

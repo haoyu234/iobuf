@@ -1,10 +1,10 @@
 import std/unittest
 import std/sequtils
 
-import cbuf/iobuf
-import cbuf/slice2
-import cbuf/intern/chunk
-import cbuf/intern/deprecated
+import iobuf/iobuf
+import iobuf/slice2
+import iobuf/intern/chunk
+import iobuf/intern/deprecated
 
 const SIZE = 100
 
