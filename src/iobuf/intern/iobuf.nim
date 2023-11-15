@@ -1,455 +1,309 @@
-const USE_IOBUF_VERSION2 = true
+import std/math
+import std/typetraits
 
-when USE_IOBUF_VERSION2:
-  import iobuf2
-  export iobuf2
+import tls
+import chunk
+import region
+import deprecated
+
+const USE_STD_DEQUE = false
+
+when USE_STD_DEQUE:
+  import std/deques
 else:
-  import std/math
-  import std/typetraits
+  import deque
 
-  import tls
-  import indices
-  import chunk
-  import region
-  import deprecated
-  import storage
+type
+  InternIOBuf* = object
+    len: int
+    lastChunk: Chunk
+    queuedRegion: Deque[Region]
 
-  const INLINE_STORAGE = true
-  const INITIAL_QUEUE_CAPACITY = 32
+  LocatePos = object
+    idx: int
+    left: int
+    right: int
 
-  type
-    InternIOBuf* = object
-      len: int
-      lastChunk: Chunk
+  InternPos = object
+    idx: int
+    offset: int
 
-      queueSize: int32
-      when INLINE_STORAGE:
-        queueCapacity: int32
-      else:
-        queueCapacity: int32
-      queueStart: int32
-      queueStorage: Storage[Region]
-      when INLINE_STORAGE:
-        inlineStorage: array[2, Region]
+template len*(buf: InternIOBuf): int = buf.len
+template queueSize*(buf: InternIOBuf): int = buf.queuedRegion.len
 
-    LocatePos = object
-      idx: int
-      left: int
-      right: int
+template clear*(buf: var InternIOBuf) =
+  if buf.len > 0:
+    buf.len = 0
+    buf.queuedRegion.clear
 
-    InternPos* = object
-      idx: int
-      offset: int
+iterator items*(buf: InternIOBuf): lent Region =
+  for region in buf.queuedRegion:
+    yield region
 
-    InternSlice* = object
-      start: InternPos
-      stop: InternPos
+proc initBuf*(result: var InternIOBuf) {.inline.} =
+  result.len = 0
+  result.lastChunk = nil
 
-  template len*(buf: InternIOBuf): int = buf.len
-  template queueSize*(buf: InternIOBuf): int = buf.queueSize
+proc `=destroy`(buf: var InternIOBuf) {.`fix=destroy(var T)`.} =
+  var lastChunk = buf.lastChunk
+  while lastChunk != nil:
+    lastChunk = lastChunk.dequeueChunk()
 
-  template clear*(buf: var InternIOBuf) =
-    if buf.queueSize > 0:
-      resetStorage(buf, 0 ..< buf.queueSize)
+  `=destroy`(buf.lastChunk)
+  `=destroy`(buf.queuedRegion.getAddr[])
 
-      buf.len = 0
-      buf.queueSize = 0
-      buf.queueStart = 0
+proc extendAdjacencyRegionRight*(buf: var InternIOBuf, wirteAddr: pointer,
+    size: int): bool {.inline.} =
+  if buf.queueSize > 0:
+    if wirteAddr == buf.queuedRegion[^1].rightAddr:
+      inc buf.len, size
+      buf.queuedRegion[^1].extendLen(size)
+      result = true
 
-  template fastClear*(buf: var InternIOBuf) =
-    if buf.queueSize > 0:
-      buf.len = 0
-      buf.queueSize = 0
-      buf.queueStart = 0
+proc enqueueZeroCopyRight*(buf: var InternIOBuf,
+    region: sink Region) {.inline.} =
 
-  template index*(buf: InternIOBuf, idx: Natural): StorageIndex =
-    StorageIndex((buf.queueStart + int(idx)) and (buf.queueCapacity - 1))
+  inc buf.len, region.len
+  buf.queuedRegion.addLast(move region)
 
-  template index*(buf: InternIOBuf, idx: BackwardsIndex): StorageIndex =
-    StorageIndex((buf.queueStart + buf.queueSize - int(idx)) and (
-        buf.queueCapacity - 1))
+proc enqueueZeroCopyRight*(buf: var InternIOBuf, chunk: sink Chunk, offset,
+    size: int) {.inline.} =
+  assert size > 0
 
-  template storage*(buf: InternIOBuf): Storage =
-    when not INLINE_STORAGE:
-      buf.queueStorage
+  var region: Region
+  region.initRegion(move chunk, offset, size)
+
+  inc buf.len, region.len
+  buf.queuedRegion.addLast(move region)
+
+proc enqueueZeroCopyRight*(buf: var InternIOBuf, data: pointer,
+    size: int) {.inline.} =
+  assert size > 0
+
+  var region: Region
+  region.initRegion(newChunk(data, size, size), 0, size)
+
+  inc buf.len, region.len
+  buf.queuedRegion.addLast(move region)
+
+proc allocChunk*(buf: var InternIOBuf): Chunk {.inline.} =
+  while true:
+    result = move buf.lastChunk
+    if result.isNil:
+      return allocTlsChunk()
+
+    buf.lastChunk = result.dequeueChunk()
+    if not result.isFull:
+      break
+
+template allocChunk*(buf: var InternIOBuf, accrued, left: int): Chunk =
+  if accrued >= DEFAULT_LARGE_CHUNK_SIZE and left >= DEFAULT_LARGE_CHUNK_SIZE:
+    newChunk(DEFAULT_LARGE_CHUNK_SIZE)
+  else:
+    buf.allocChunk()
+
+proc releaseChunk*(buf: var InternIOBuf, chunk: sink Chunk) {.inline.} =
+  if not chunk.isFull:
+    if not buf.lastChunk.isNil:
+      buf.lastChunk.enqueueChunk(move chunk)
     else:
-      if buf.queueStorage != nil:
-        buf.queueStorage
-      else:
-        cast[Storage[Region]](buf.inlineStorage[0].getAddr)
+      buf.lastChunk = move chunk
 
-  template storage*(buf: var InternIOBuf): Storage =
-    when not INLINE_STORAGE:
-      buf.queueStorage
+proc enqueueSlowCopyRight*(buf: var InternIOBuf, data: pointer,
+    size: int) {.inline.} =
+  if size == 1:
+    var lastChunk = sharedTlsChunk()
+    let oldLen = lastChunk.len
+    let writeAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(oldLen))
+    cast[ptr byte](writeAddr)[] = cast[ptr byte](data)[]
+
+    lastChunk.extendLen(1)
+
+    if buf.extendAdjacencyRegionRight(writeAddr, 1):
+      return
+
+    buf.enqueueZeroCopyRight(move lastChunk, oldLen, 1)
+    return
+
+  var written = 0
+  var lastChunk: Chunk = nil
+
+  while written < size:
+    let left = size - written
+
+    lastChunk = buf.allocChunk(written, left)
+
+    let oldLen = lastChunk.len
+    let writeAddr = cast[uint](lastChunk.leftAddr) + uint(oldLen)
+    let dataLen = min(lastChunk.leftSpace(), left)
+
+    copyMem(cast[pointer](writeAddr),
+      cast[pointer](cast[uint](data) + uint(written)), dataLen)
+
+    inc written, dataLen
+    lastChunk.extendLen(dataLen)
+
+    buf.enqueueZeroCopyRight(lastChunk, oldLen, dataLen)
+
+  if lastChunk.isNil:
+    return
+
+  buf.releaseChunk(move lastChunk)
+
+proc dequeueAdjustLeft*(buf: var InternIOBuf,
+  idx, offset, size: int) {.inline.} =
+
+  assert size <= buf.len
+
+  if offset > 0:
+    buf.queuedRegion[idx].discardLeft(offset)
+
+  for idx2 in 0..<idx:
+    discard buf.queuedRegion.popFirst()
+
+  dec buf.len, size
+
+proc dequeueAdjustRight*(buf: var InternIOBuf,
+  idx, offset, size: int) {.inline.} =
+
+  assert size <= buf.len
+
+  if offset > 0:
+    buf.queuedRegion[idx].discardRight(offset)
+
+  for idx2 in (idx + 1) ..< buf.queueSize:
+    discard buf.queuedRegion.popLast()
+
+  dec buf.len, size
+
+proc locate(buf: InternIOBuf,
+  offset: int, reverseSearch: static[bool] = false): LocatePos {.inline.} =
+
+  assert offset < buf.len
+
+  var searchPos = offset
+  let upperBound = buf.queueSize - 1
+
+  for idx in 0 .. upperBound:
+    when reverseSearch:
+      let newIdx = upperBound - idx
     else:
-      if buf.queueStorage != nil:
-        buf.queueStorage
-      else:
-        cast[Storage[Region]](buf.inlineStorage[0].getAddr)
+      let newIdx = idx
 
-  template resetStorage*[U, V: Ordinal](buf: InternIOBuf, x: HSlice[U, V]) =
-    let a = buf ^^ x.a
-    let L = (buf ^^ x.b) - a + 1
+    let dataLen = buf.queuedRegion[newIdx].len
 
-    for idx in 0..<L:
-      let newIdx = a + idx
-      reset(buf.storage[buf.index(newIdx)])
-
-  template extendStorageImpl(buf: var InternIOBuf, capacity: int) =
-    let queueStorage = allocStorage[Region](capacity)
-
-    for idx in 0..<buf.queueSize:
-      queueStorage[StorageIndex(idx)] = move buf.storage[buf.index(idx)]
-
-    if buf.queueStorage != nil:
-      freeStorage(buf.queueStorage)
-
-    buf.queueStart = 0
-    buf.queueStorage = queueStorage
-    buf.queueCapacity = int32(capacity)
-
-  template extendStorage(buf: var InternIOBuf) =
-    if buf.queueSize == buf.queueCapacity or
-      (not INLINE_STORAGE and buf.queueStorage.isNil):
-
-      let newCapacity = max(int(buf.queueCapacity) * 2, INITIAL_QUEUE_CAPACITY)
-      extendStorageImpl(buf, newCapacity)
-
-  template reserveStorage*(buf: var InternIOBuf, size: int) =
-    if buf.queueCapacity < size:
-      let newCapacity = nextPowerOfTwo(size)
-      extendStorageImpl(buf, newCapacity)
-
-  iterator items*(buf: InternIOBuf): Region =
-    for idx in 0..<buf.queueSize:
-      yield buf.storage[buf.index(idx)]
-
-  iterator items*(buf: var InternIOBuf): var Region =
-    for idx in 0..<buf.queueSize:
-      yield buf.storage[buf.index(idx)]
-
-  proc initBuf*(result: var InternIOBuf) {.inline.} =
-    result.len = 0
-    result.lastChunk = nil
-    result.queueSize = 0
-    result.queueStart = 0
-    result.queueCapacity = 2
-    result.queueStorage = Storage[Region](nil)
-
-  proc `=destroy`(buf: var InternIOBuf) {.inline, raises: [Exception],
-      `fix=destroy(var T)`.} =
-    var lastChunk = buf.lastChunk
-    while lastChunk != nil:
-      lastChunk = lastChunk.dequeueChunk()
-
-    `=destroy`(buf.lastChunk)
-
-    resetStorage(buf, 0 ..< buf.queueSize)
-
-    if buf.queueStorage != nil:
-      freeStorage(buf.queueStorage)
-
-  proc `=copy`*(buf: var InternIOBuf, b: InternIOBuf) {.inline.} =
-    if buf.getAddr == b.getAddr: return
-
-    resetStorage(buf, 0 ..< buf.queueSize)
-
-    buf.queueSize = 0
-    buf.queueStart = 0
-
-    buf.reserveStorage(b.queueSize)
-
-    for idx in 0..<b.queueSize:
-      buf.queueStorage[StorageIndex(idx)] = b.storage[b.index(idx)]
-
-    buf.queueSize = b.queueSize
-
-  proc `=sink`*(buf: var InternIOBuf, b: InternIOBuf) {.inline.} =
-    `=destroy`(buf)
-    wasMoved(buf)
-
-    if b.queueStorage != nil:
-      buf.len = b.len
-      buf.lastChunk = b.lastChunk
-      buf.queueSize = b.queueSize
-      buf.queueStart = b.queueStart
-      buf.queueCapacity = b.queueCapacity
-      buf.queueStorage = b.queueStorage
-      return
-
-    buf.initBuf()
-
-    for idx in 0..<b.queueSize:
-      buf.queueStorage[StorageIndex(idx)] = move b.storage[b.index(idx)]
-
-    buf.queueSize = b.queueSize
-
-  proc extendAdjacencyRegionRight*(buf: var InternIOBuf, wirteAddr: pointer,
-      size: int): bool {.inline.} =
-    if buf.queueSize > 0:
-      let idx = buf.index(^1)
-
-      if wirteAddr == buf.storage[idx].rightAddr:
-        inc buf.len, size
-        buf.storage[idx].extendLen(size)
-        result = true
-
-  proc enqueueZeroCopyRight*(buf: var InternIOBuf,
-      region: sink Region) {.inline.} =
-    let dataLen = region.len
-
-    buf.extendStorage()
-    buf.storage[buf.index(buf.queueSize)] = move region
-
-    inc buf.queueSize
-    inc buf.len, dataLen
-
-  proc enqueueZeroCopyRight*(buf: var InternIOBuf, chunk: sink Chunk, offset,
-      size: int) {.inline.} =
-    assert size > 0
-
-    buf.extendStorage()
-    buf.storage[buf.index(buf.queueSize)].initRegion(move chunk, offset, size)
-
-    inc buf.queueSize
-    inc buf.len, size
-
-  proc enqueueZeroCopyRight*(buf: var InternIOBuf, data: pointer,
-      size: int) {.inline.} =
-    assert size > 0
-
-    var chunk = newChunk(data, size, size)
-
-    buf.extendStorage()
-    buf.storage[buf.index(buf.queueSize)].initRegion(move chunk, 0, size)
-
-    inc buf.queueSize
-    inc buf.len, size
-
-  proc allocChunk*(buf: var InternIOBuf): Chunk {.inline.} =
-    while true:
-      result = move buf.lastChunk
-      if result.isNil:
-        return allocTlsChunk()
-
-      buf.lastChunk = result.dequeueChunk()
-      if not result.isFull:
-        break
-
-  proc releaseChunk*(buf: var InternIOBuf, chunk: sink Chunk) {.inline.} =
-    if not chunk.isFull:
-      if not buf.lastChunk.isNil:
-        buf.lastChunk.enqueueChunk(move chunk)
-      else:
-        buf.lastChunk = move chunk
-
-  proc enqueueSlowCopyRight*(buf: var InternIOBuf, data: pointer,
-      size: int) {.inline.} =
-    if size == 1:
-      var lastChunk = sharedTlsChunk()
-      let oldLen = lastChunk.len
-      let writeAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(oldLen))
-      cast[ptr byte](writeAddr)[] = cast[ptr byte](data)[]
-
-      lastChunk.extendLen(1)
-
-      if buf.extendAdjacencyRegionRight(writeAddr, 1):
-        return
-
-      buf.enqueueZeroCopyRight(move lastChunk, oldLen, 1)
-      return
-
-    var written = 0
-    var lastChunk: Chunk = nil
-
-    while written < size:
-      let left = size - written
-
-      if written >= DEFAULT_LARGE_CHUNK_SIZE and left >= DEFAULT_LARGE_CHUNK_SIZE:
-        lastChunk = newChunk(DEFAULT_LARGE_CHUNK_SIZE)
-      else:
-        lastChunk = buf.allocChunk()
-
-      let oldLen = lastChunk.len
-      let writeAddr = cast[uint](lastChunk.leftAddr) + uint(oldLen)
-      let dataLen = min(lastChunk.leftSpace(), left)
-
-      copyMem(cast[pointer](writeAddr),
-        cast[pointer](cast[uint](data) + uint(written)), dataLen)
-
-      inc written, dataLen
-      lastChunk.extendLen(dataLen)
-
-      buf.enqueueZeroCopyRight(lastChunk, oldLen, dataLen)
-
-    if lastChunk.isNil:
-      return
-
-    buf.releaseChunk(move lastChunk)
-
-  proc dequeueAdjustLeft*(buf: var InternIOBuf,
-    idx, offset, size: int) {.inline.} =
-
-    assert size <= buf.len
-
-    when defined(debug):
-      var size2 = offset
-      for idx2 in 0..<idx:
-        inc size2, buf.storage[buf.index(idx2)].len
-      assert size2 == size
-
-    if offset > 0:
-      buf.storage[buf.index(idx)].discardLeft(offset)
-
-    if idx > 0:
-      resetStorage(buf, 0 ..< idx)
-
-      buf.queueStart = int32((buf.queueStart + idx) mod buf.queueCapacity)
-      dec buf.queueSize, idx
-
-    dec buf.len, size
-
-  proc dequeueAdjustRight*(buf: var InternIOBuf,
-    idx, offset, size: int) {.inline.} =
-
-    assert size <= buf.len
-
-    when defined(debug):
-      var size2 = offset
-      for idx2 in idx+1..<buf.queueSize:
-        inc size2, buf.storage[buf.index(idx2)].len
-      assert size2 == size
-
-    resetStorage(buf, int32(idx + 1) ..< buf.queueSize)
-
-    buf.storage[buf.index(idx)].discardRight(offset)
-    buf.queueSize = int32(idx + 1)
-
-    dec buf.len, size
-
-  proc locate(buf: InternIOBuf,
-    offset: int, reverseSearch: static[bool] = false): LocatePos {.inline.} =
-
-    assert offset < buf.len
-
-    var searchPos = offset
-    let upperBound = buf.queueSize - 1
-
-    for idx in 0 .. upperBound:
+    if searchPos < dataLen:
       when reverseSearch:
-        let newIdx = upperBound - idx
+        result.idx = newIdx
+        result.left = dataLen - searchPos
+        result.right = searchPos
       else:
-        let newIdx = idx
+        result.idx = newIdx
+        result.left = searchPos
+        result.right = dataLen - searchPos
+      return
 
-      let dataLen = buf.storage[buf.index(newIdx)].len
+    dec searchPos, dataLen
 
-      if searchPos < dataLen:
-        when reverseSearch:
-          result.idx = newIdx
-          result.left = dataLen - searchPos
-          result.right = searchPos
-        else:
-          result.idx = newIdx
-          result.left = searchPos
-          result.right = dataLen - searchPos
-        return
+  assert false
 
-      dec searchPos, dataLen
+proc dequeueLeft*(buf: var InternIOBuf, size: int) {.inline.} =
+  if size <= 0 or buf.len <= 0:
+    return
 
-    assert false
+  if size < buf.len:
+    let locatePos = buf.locate(size)
+    buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
+    return
 
-  proc dequeueLeft*(buf: var InternIOBuf, size: int) {.inline.} =
-    if buf.queueSize > 0 and size > 0:
-      if size >= buf.len:
-        buf.clear()
-      else:
-        let locatePos = buf.locate(size)
-        buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
+  buf.clear()
 
-  proc dequeueRight*(buf: var InternIOBuf, size: int) {.inline.} =
-    if buf.queueSize > 0 and size > 0:
-      if size >= buf.len:
-        buf.clear()
-      else:
-        let locatePos = buf.locate(size, reverseSearch = true)
-        buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
+proc dequeueRight*(buf: var InternIOBuf, size: int) {.inline.} =
+  if size <= 0 or buf.len <= 0:
+    return
 
-  template consumeRange*(buf: InternIOBuf, start, stop: InternPos,
-      consumeBuf: untyped) =
-    block consumeRangeScope:
-      var idx {.inject.} = start.idx
+  if size < buf.len:
+    let locatePos = buf.locate(size, reverseSearch = true)
+    buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
+    return
 
-      if idx == stop.idx:
-        var it {.inject.} =
-          buf.storage[buf.index(idx)][start.offset ..< stop.offset]
-        consumeBuf
+  buf.clear()
 
-        break consumeRangeScope
+template consumeRange*(buf: InternIOBuf, start, stop: InternPos,
+    consumeBuf: untyped) =
+  block consumeRangeScope:
+    var idx {.inject.} = start.idx
 
-      if start.offset > 0:
-        var it {.inject.} =
-          buf.storage[buf.index(idx)][start.offset .. ^1]
-        consumeBuf
+    if idx == stop.idx:
+      var it {.inject.} =
+        buf.queuedRegion[idx][start.offset ..< stop.offset]
+      consumeBuf
 
-        inc idx
+      break consumeRangeScope
 
-      while idx < stop.idx:
+    if start.offset > 0:
+      var it {.inject.} =
+        buf.queuedRegion[idx][start.offset .. ^1]
+      consumeBuf
+
+      inc idx
+
+    while idx < stop.idx:
+      template it: untyped {.inject.} =
+        buf.queuedRegion[idx]
+      consumeBuf
+
+      inc idx
+
+    if stop.offset > 0:
+      var it {.inject.} =
+        buf.queuedRegion[idx][0 ..< stop.offset]
+      consumeBuf
+
+template consumeLeft*(buf, size, dequeueLeft, consumeBuf) =
+  block consumeLeftScope:
+    if size >= buf.len:
+      for idx in 0 ..< buf.queueSize:
         template it: untyped {.inject.} =
-          buf.storage[buf.index(idx)]
-        consumeBuf
+          buf.queuedRegion[idx]
 
-        inc idx
-
-      if stop.offset > 0:
-        var it {.inject.} =
-          buf.storage[buf.index(idx)][0 ..< stop.offset]
-        consumeBuf
-
-  template consumeLeft*(buf, size, dequeueLeft, consumeBuf) =
-    block consumeLeftScope:
-      if size >= buf.len:
-        for idx in 0 ..< buf.queueSize:
-          template it: untyped {.inject.} =
-            buf.storage[buf.index(idx)]
-
-          consumeBuf
-
-        when dequeueLeft:
-          buf.fastClear()
-
-        break consumeLeftScope
-
-      let locatePos = buf.locate(size)
-      let leftPos = InternPos(idx: 0, offset: 0)
-      let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-
-      consumeRange(buf, leftPos, rightPos):
         consumeBuf
 
       when dequeueLeft:
-        buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
+        buf.clear()
 
-  template consumeRight*(buf, size, dequeueRight, consumeBuf) =
-    block consumeRightScope:
-      if size >= buf.len:
-        for idx in 0 ..< buf.queueSize:
-          template it: untyped {.inject.} =
-            buf.storage[buf.index(idx)]
+      break consumeLeftScope
 
-          consumeBuf
+    let locatePos = buf.locate(size)
+    let leftPos = InternPos(idx: 0, offset: 0)
+    let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
 
-        when dequeueRight:
-          buf.fastClear()
+    consumeRange(buf, leftPos, rightPos):
+      consumeBuf
 
-        break consumeRightScope
+    when dequeueLeft:
+      buf.dequeueAdjustLeft(locatePos.idx, locatePos.left, size)
 
-      let locatePos = buf.locate(size, reverseSearch = true)
-      let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-      let rightPos = InternPos(idx: buf.queueSize - 1, offset: buf.storage[
-          buf.index(^1)].len)
+template consumeRight*(buf, size, dequeueRight, consumeBuf) =
+  block consumeRightScope:
+    if size >= buf.len:
+      for idx in 0 ..< buf.queueSize:
+        template it: untyped {.inject.} =
+          buf.queuedRegion[idx]
 
-      consumeRange(buf, leftPos, rightPos):
         consumeBuf
 
       when dequeueRight:
-        buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
+        buf.clear()
+
+      break consumeRightScope
+
+    let locatePos = buf.locate(size, reverseSearch = true)
+    let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
+    let rightPos = InternPos(idx: buf.queueSize - 1, offset: buf.queuedRegion[^1].len)
+
+    consumeRange(buf, leftPos, rightPos):
+      consumeBuf
+
+    when dequeueRight:
+      buf.dequeueAdjustRight(locatePos.idx, locatePos.right, size)
