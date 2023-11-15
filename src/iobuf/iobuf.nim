@@ -9,8 +9,11 @@ import slice2
 type
   IOBuf* = distinct InternIOBuf
 
-proc initBuf*(): IOBuf {.inline.} =
-  InternIOBuf(result).initBuf
+proc initIOBuf*(): IOBuf {.inline.} =
+  InternIOBuf(result).initIOBuf
+
+proc initIOBuf*(buf: var IOBuf) {.inline.} =
+  InternIOBuf(buf).initIOBuf
 
 proc len*(buf: IOBuf): int {.inline.} =
   InternIOBuf(buf).len
@@ -75,6 +78,16 @@ proc peekLeftCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
 
+proc peekLeftCopy*(buf: IOBuf, data: var seq[byte], size: int): int {.inline.} =
+  if size <= 0 or buf.len <= 0:
+    return
+
+  let oldLen = data.len
+  InternIOBuf(buf).consumeLeft(size, false):
+    data.add(it.toOpenArray)
+
+  result = data.len - oldLen
+
 proc peekLeft*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
@@ -92,6 +105,17 @@ proc readLeftCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
   InternIOBuf(buf).consumeLeft(size, true):
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
+
+proc readLeftCopy*(buf: var IOBuf, data: var seq[byte],
+    size: int): int {.inline.} =
+  if size <= 0 or buf.len <= 0:
+    return
+
+  let oldLen = data.len
+  InternIOBuf(buf).consumeLeft(size, true):
+    data.add(it.toOpenArray)
+
+  result = data.len - oldLen
 
 proc readLeft*(buf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
@@ -114,6 +138,17 @@ proc peekRightCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
 
+proc peekRightCopy*(buf: IOBuf, data: var seq[byte],
+    size: int): int {.inline.} =
+  if size <= 0 or buf.len <= 0:
+    return
+
+  let oldLen = data.len
+  InternIOBuf(buf).consumeRight(size, false):
+    data.add(it.toOpenArray)
+
+  result = data.len - oldLen
+
 proc peekRight*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
@@ -131,6 +166,17 @@ proc readRightCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
   InternIOBuf(buf).consumeRight(size, true):
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
+
+proc readRightCopy*(buf: var IOBuf, data: var seq[byte],
+    size: int): int {.inline.} =
+  if size <= 0 or buf.len <= 0:
+    return
+
+  let oldLen = data.len
+  InternIOBuf(buf).consumeRight(size, true):
+    data.add(it.toOpenArray)
+
+  result = data.len - oldLen
 
 proc readRight*(buf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:

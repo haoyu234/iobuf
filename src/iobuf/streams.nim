@@ -4,66 +4,54 @@ import iobuf
 import intern/deprecated
 
 type
-  ReaderStream* = ref ReaderStreamObj
-  ReaderStreamObj = object of StreamObj
-    buf: ptr IOBuf
-
-  WriterStream* = ref WriterStreamObj
-  WriterStreamObj = object of StreamObj
+  IOBufStream = ref object of StreamObj
     buf: ptr IOBuf
 
 proc closeImpl(s: Stream) =
-  var readerStream = ReaderStream(s)
-  reset(readerStream.buf)
+  var stream = IOBufStream(s)
+  reset(stream.buf)
 
 proc atEndImpl(s: Stream): bool =
-  var readerStream = ReaderStream(s)
-  readerStream.buf[].len == 0
+  var stream = IOBufStream(s)
+  stream.buf[].len == 0
 
 proc readDataStrImpl(s: Stream, buffer: var string, slice: Slice[int]): int =
-  var readerStream = ReaderStream(s)
+  var stream = IOBufStream(s)
 
   when declared(prepareMutation):
     prepareMutation(buffer) # buffer might potentially be a CoW literal with ARC
 
-  result = min(slice.b + 1 - slice.a, readerStream.buf[].len)
+  result = min(slice.b + 1 - slice.a, stream.buf[].len)
   if result > 0:
-    result = readerStream.buf[].readLeftCopy(buffer[slice.a].getAddr, result)
+    result = stream.buf[].readLeftCopy(buffer[slice.a].getAddr, result)
   else:
     result = 0
 
 proc readDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
-  var readerStream = ReaderStream(s)
+  var stream = IOBufStream(s)
 
   if bufLen > 0:
-    result = readerStream.buf[].readLeftCopy(buffer, bufLen)
+    result = stream.buf[].readLeftCopy(buffer, bufLen)
 
 proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
-  var readerStream = ReaderStream(s)
+  var stream = IOBufStream(s)
 
   if bufLen > 0:
-    result = readerStream.buf[].peekLeftCopy(buffer, bufLen)
+    result = stream.buf[].peekLeftCopy(buffer, bufLen)
 
 proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
-  var writerStream = WriterStream(s)
+  var writerStream = IOBufStream(s)
   if bufLen <= 0:
     return
 
   writerStream.buf[].appendCopy(buffer, bufLen)
 
-proc readerStream*(buf: ptr IOBuf): ReaderStream {.inline.} =
-  new (result)
-
+proc newIOBufStream*(buf: ptr IOBuf): owned IOBufStream {.inline.} =
+  result = IOBufStream()
   result.buf = buf
   result.closeImpl = closeImpl
   result.atEndImpl = atEndImpl
   result.readDataStrImpl = readDataStrImpl
   result.readDataImpl = readDataImpl
   result.peekDataImpl = peekDataImpl
-
-proc writerStream*(buf: ptr IOBuf): WriterStream {.inline.} =
-  new (result)
-
-  result.buf = buf
-  result.closeImpl = closeImpl
   result.writeDataImpl = writeDataImpl

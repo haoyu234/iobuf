@@ -11,13 +11,13 @@ var data = newSeqOfCap[byte](SIZE)
 for i in 0 ..< SIZE:
   data.add(byte(i mod int(high(byte))))
 
-test "readerStream":
+test "read Stream":
 
-  var buf = initBuf()
+  var buf = initIOBuf()
   buf.appendZeroCopy(data)
 
   var data2 = byte(0)
-  var reader = readerStream(buf.getAddr)
+  var reader = newIOBufStream(buf.getAddr)
 
   var idx = byte(0)
   while not reader.atEnd:
@@ -28,10 +28,10 @@ test "readerStream":
 
   check buf.len == 0
 
-test "writerStream":
+test "write Stream":
 
-  var buf = initBuf()
-  var writer = writerStream(buf.getAddr)
+  var buf = initIOBuf()
+  var writer = newIOBufStream(buf.getAddr)
 
   for data2 in data:
     writer.write(data2)

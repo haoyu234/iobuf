@@ -18,7 +18,7 @@ template allocStorage[T](capacity: int): ptr UncheckedArray[T] =
 template freeStorage(storage: pointer) =
   c_free(storage)
 
-template initImpl(result: typed, initSize: int) =
+template initImpl[T](result: var Deque[T], initSize: int) =
   if initSize > INLINE_STORAGE_CAPACITY:
     let cap = if initSize > DEFAULT_STORAGE_CAPACITY:
       nextPowerOfTwo(initSize)
@@ -29,7 +29,7 @@ template initImpl(result: typed, initSize: int) =
     result.data = allocStorage[T](cap)
   else:
     result.mask = 1
-    result.data = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].getAddr)
+    result.data = cast[ptr UncheckedArray[T]](result.inlineStorage[0].getAddr)
 
 template checkIfInitialized(deq: typed) =
   if deq.mask == 0:
@@ -52,7 +52,7 @@ proc `=destroy`*[T](deq: var Deque[T]) {.inline, `fix=destroy(var T)`.} =
 
   var i = deq.head
   for _ in 0 ..< deq.len:
-    destroy(deq.storage[i])
+    `=destroy`(deq.storage[i])
     i = (i + 1) and deq.mask
 
   checkAndFreeStorage(deq)
@@ -162,9 +162,11 @@ iterator pairs*[T](deq: Deque[T]): tuple[key: int, val: T] =
 
 proc expandIfNeeded[T](deq: var Deque[T]) =
   checkIfInitialized(deq)
-  var cap = deq.mask + 1
+  let cap = deq.mask + 1
   if unlikely(deq.len >= cap):
-    var n = allocStorage[T](cap * 2)
+    let newCap = max(cap * 2, DEFAULT_STORAGE_CAPACITY)
+
+    var n = allocStorage[T](newCap)
     var i = 0
     for x in mitems(deq):
       when nimvm: n[i] = x # workaround for VM bug
@@ -174,7 +176,7 @@ proc expandIfNeeded[T](deq: var Deque[T]) =
     checkAndFreeStorage(deq)
 
     deq.data = n
-    deq.mask = cap * 2 - 1
+    deq.mask = newCap - 1
     deq.tail = deq.len
     deq.head = 0
 
