@@ -1,7 +1,8 @@
 import std/monotimes
 import std/strformat
 
-import ../src/iobuf
+import ../src/iobuf/iobuf
+import ../src/iobuf/ioops
 import ../src/iobuf/intern/chunk
 import ../src/iobuf/intern/deprecated
 
