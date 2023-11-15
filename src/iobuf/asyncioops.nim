@@ -6,7 +6,7 @@ import std/net
 import iobuf
 import ioops
 
-proc isDisconnectionError(lastError: OSErrorCode): bool =
+proc isDisconnectionError*(lastError: OSErrorCode): bool =
   ## Determines whether `lastError` is a disconnection error.
   when defined(windows):
     (lastError.int32 == WSAECONNRESET or
@@ -22,8 +22,8 @@ proc isDisconnectionError(lastError: OSErrorCode): bool =
 
 when defined(linux):
 
-  proc readInto*(socket: AsyncFD, buf: ptr IOBuf, maxSize: int): owned(Future[int]) =
-    var retFuture = newFuture[int]("recvInto")
+  proc readIntoIOBuf*(socket: AsyncFD, buf: ptr IOBuf, maxSize: int): owned(Future[int]) =
+    var retFuture = newFuture[int]("readIntoIOBuf")
 
     proc cb(sock: AsyncFD): bool =
       result = true
@@ -32,10 +32,7 @@ when defined(linux):
         let lastError = osLastError()
         if lastError.int32 != EINTR and lastError.int32 != EWOULDBLOCK and
            lastError.int32 != EAGAIN:
-          if isDisconnectionError(lastError):
-            retFuture.complete(0)
-          else:
-            retFuture.fail(newException(OSError, osErrorMsg(lastError)))
+          retFuture.fail(newException(OSError, osErrorMsg(lastError)))
         else:
           result = false # We still want this callback to be called.
       else:
@@ -43,4 +40,32 @@ when defined(linux):
     # TODO: The following causes a massive slowdown.
     #if not cb(socket):
     addRead(socket, cb)
+    return retFuture
+
+  proc writeIOBuf*(socket: AsyncFD, buf: ptr IOBuf, size: int): owned(Future[void]) =
+    var retFuture = newFuture[void]("writeIOBuf")
+
+    var written = 0
+
+    proc cb(sock: AsyncFD): bool =
+      result = true
+      let netSize = size - written
+      let res = writev(cint(sock), buf[], netSize)
+      if res < 0:
+        let lastError = osLastError()
+        if lastError.int32 != EINTR and
+           lastError.int32 != EWOULDBLOCK and
+           lastError.int32 != EAGAIN:
+          retFuture.fail(newOSError(lastError))
+        else:
+          result = false # We still want this callback to be called.
+      else:
+        written.inc(res)
+        if res != netSize:
+          result = false # We still have data to send.
+        else:
+          retFuture.complete()
+    # TODO: The following causes crashes.
+    #if not cb(socket):
+    addWrite(socket, cb)
     return retFuture
