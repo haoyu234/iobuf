@@ -8,7 +8,7 @@ const DEFAULT_CHUNK_SIZE* = 8192
 const DEFAULT_LARGE_CHUNK_SIZE* = DEFAULT_CHUNK_SIZE * 4
 
 type
-  ChunkObj* = object of RootObj
+  ChunkObj* {.acyclic.} = object of RootObj
     len: int
     capacity: int
     storage: pointer
@@ -44,7 +44,7 @@ proc newChunk*(capacity: int): Chunk {.inline.} =
   var chunk = new(Chunk2)
 
   let p = c_malloc(csize_t(capacity))
-  initChunk(Chunk(chunk), p, 0, capacity)
+  Chunk(chunk).initChunk(p, 0, capacity)
 
   chunk
 
@@ -52,10 +52,11 @@ proc newChunk*(data: sink seq[byte]): Chunk {.inline.} =
   var chunk = new(Chunk3)
 
   let len = data.len
-  let p = data[0].getAddr
 
   chunk.data = move data
-  initChunk(Chunk(chunk), p, len, len)
+
+  let p = chunk.data[0].getAddr
+  Chunk(chunk).initChunk(p, len, len)
 
   chunk
 

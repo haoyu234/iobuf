@@ -40,7 +40,7 @@ iterator items*(buf: InternIOBuf): lent Region =
   for region in buf.queuedRegion:
     yield region
 
-proc initBuf*(result: var InternIOBuf) {.inline.} =
+proc initIOBuf*(result: var InternIOBuf) {.inline.} =
   result.len = 0
   result.lastChunk = nil
 
