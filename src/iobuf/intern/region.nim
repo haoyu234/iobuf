@@ -15,6 +15,9 @@ template initRegion*(result: var Region,
   result.offset = int32(offset2)
   result.chunk = chunk2
 
+proc initRegion*(chunk: Chunk, offset, size: int): Region =
+  result.initRegion(chunk, offset, size)
+
 template len*(region: Region): int =
   int(region.len)
 
@@ -27,7 +30,10 @@ template leftAddr*(region: Region): pointer =
 template rightAddr*(region: Region): pointer =
   cast[pointer](cast[uint](region.leftAddr) + uint(region.len))
 
-template extendLen*(region: var Region, size: int) =
+template extendLeft*(region: var Region, size: int) =
+  dec region.offset, size
+
+template extendRight*(region: var Region, size: int) =
   inc region.len, size
 
 template discardLeft*(region: var Region, size: int) =

@@ -37,28 +37,7 @@ proc readBenchBuf() =
 
   benchLoop(body, SIZE)
 
-proc writeBenchBuf(data: openArray[byte]) =
-  var buf = initIOBuf()
-
-  template appendZeroCopy(size): int =
-    let offset = size mod data.len
-    let left = min(data.len - offset, SIZE - size)
-    assert left > 0
-    buf.appendZeroCopy(data[offset].getAddr, left)
-    left
-
-  benchLoop(appendZeroCopy, SIZE)
-
-  let file = open("/dev/null", FileMode.fmWrite)
-  let fd = file.getFileHandle
-  defer: file.close()
-
-  template body(size): int =
-    writev(cint(fd), buf, SIZE - size)
-
-  benchLoop(body, SIZE)
-
-proc writeBenchBuf2(data: openArray[byte]) =
+proc writeBenchIOBuf(data: openArray[byte]) =
   var buf = initIOBuf()
 
   template appendZeroCopy(size): int =
@@ -130,7 +109,6 @@ type
     WriteBenchSeq2,
     ReadBenchIOBuf,
     WriteBenchIOBuf,
-    WriteBenchIOBuf2,
 
 proc bench(tp: BenchTp, info: string) =
   let startTs = getMonoTime().ticks
@@ -145,9 +123,7 @@ proc bench(tp: BenchTp, info: string) =
   of WriteBenchSeq2:
     writeBenchSeq2(data)
   of WriteBenchIOBuf:
-    writeBenchBuf(data)
-  of WriteBenchIOBuf2:
-    writeBenchBuf2(data)
+    writeBenchIOBuf(data)
 
   let passTs = getMonoTime().ticks - startTs
 
@@ -161,4 +137,3 @@ bench(ReadBenchIOBuf, "readv")
 bench(WriteBenchSeq, "write * N")
 bench(WriteBenchSeq2, "appendCopy, write")
 bench(WriteBenchIOBuf, "appendZeroCopy, writev")
-bench(WriteBenchIOBuf2, "writev")
