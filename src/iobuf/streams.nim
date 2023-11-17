@@ -1,10 +1,11 @@
 import std/streams
 
 import iobuf
+import binary
 import intern/deprecated
 
 type
-  IOBufStream = ref object of StreamObj
+  IOBufStream* = ref object of StreamObj
     buf: ptr IOBuf
 
 proc closeImpl(s: Stream) =
@@ -28,21 +29,36 @@ proc readDataStrImpl(s: Stream, buffer: var string, slice: Slice[int]): int =
     result = 0
 
 proc readDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
-  var stream = IOBufStream(s)
-
-  if bufLen > 0:
-    result = stream.buf[].readLeftCopy(buffer, bufLen)
-
-proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
-  var stream = IOBufStream(s)
-
-  if bufLen > 0:
-    result = stream.buf[].peekLeftCopy(buffer, bufLen)
-
-proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
-  var writerStream = IOBufStream(s)
   if bufLen <= 0:
     return
+
+  var stream = IOBufStream(s)
+
+  if bufLen == 1:
+    result = bufLen
+    cast[ptr byte](buffer)[] = byte(stream.buf[].readUint8)
+    return
+
+  result = stream.buf[].readLeftCopy(buffer, bufLen)
+
+proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
+  if bufLen <= 0:
+    return
+
+  var stream = IOBufStream(s)
+
+  if bufLen == 1:
+    result = bufLen
+    cast[ptr byte](buffer)[] = byte(stream.buf[].peekUint8)
+    return
+
+  result = stream.buf[].peekLeftCopy(buffer, bufLen)
+
+proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
+  if bufLen <= 0:
+    return
+
+  var writerStream = IOBufStream(s)
 
   writerStream.buf[].appendCopy(buffer, bufLen)
 
