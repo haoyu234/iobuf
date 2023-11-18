@@ -32,38 +32,39 @@ iterator items*(buf: IOBuf): Slice2[byte] {.inline.} =
     yield region.toOpenArray().slice()
 
 proc appendCopy*(buf: var IOBuf, data: pointer, len: int) {.inline.} =
-  InternIOBuf(buf).enqueueSlowCopyRight(data, len)
+  InternIOBuf(buf).enqueueRightCopy(data, len)
 
 proc appendCopy*(buf: var IOBuf, data: openArray[byte]) {.inline.} =
-  InternIOBuf(buf).enqueueSlowCopyRight(data[0].getAddr, data.len)
+  InternIOBuf(buf).enqueueRightCopy(data[0].getAddr, data.len)
 
 proc appendCopy*(buf: var IOBuf, data: Slice2[byte]) {.inline.} =
-  InternIOBuf(buf).enqueueSlowCopyRight(data.leftAddr, data.len)
+  InternIOBuf(buf).enqueueRightCopy(data.leftAddr, data.len)
 
 proc appendZeroCopy*(buf: var IOBuf, data: pointer, len: int) {.inline.} =
-  InternIOBuf(buf).enqueueZeroCopyRight(data, len)
+  var chunk = newChunk(data, len, len)
+  var region = initRegion(move chunk, 0, len)
+  InternIOBuf(buf).enqueueRightZeroCopy(move region)
 
 proc appendZeroCopy*(buf: var IOBuf, data: sink seq[byte]) {.inline.} =
-  let dataLen = data.len
+  let len = data.len
   var chunk = newChunk(move data)
-  InternIOBuf(buf).enqueueZeroCopyRight(move chunk, 0, dataLen)
+  var region = initRegion(move chunk, 0, len)
+  InternIOBuf(buf).enqueueRightZeroCopy(move region)
 
 proc appendZeroCopy*(buf: var IOBuf, data: IOBuf) {.inline.} =
   for region in InternIOBuf(data):
-    InternIOBuf(buf).enqueueZeroCopyRight(region)
+    InternIOBuf(buf).enqueueRightZeroCopy(region)
 
 proc appendZeroCopy*(buf: var IOBuf, data: byte) {.inline.} =
   var lastChunk = sharedTlsChunk()
-  let oldLen = lastChunk.len
-  let writeAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(oldLen))
-  cast[ptr byte](writeAddr)[] = data
+  let len = lastChunk.len
+  let dstAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(len))
+  cast[ptr byte](dstAddr)[] = data
 
   lastChunk.extendLen(1)
 
-  if InternIOBuf(buf).extendAdjacencyRegionRight(writeAddr, 1):
-    return
-
-  InternIOBuf(buf).enqueueZeroCopyRight(move lastChunk, oldLen, 1)
+  var region = initRegion(move lastChunk, len, 1)
+  InternIOBuf(buf).enqueueRightZeroCopy(move region)
 
 proc discardLeft*(buf: var IOBuf, size: int) {.inline.} =
   InternIOBuf(buf).dequeueLeft(size)
@@ -93,7 +94,7 @@ proc peekLeft*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
     return
 
   InternIOBuf(buf).consumeLeft(size, false):
-    InternIOBuf(into).enqueueZeroCopyRight(it)
+    InternIOBuf(into).enqueueRightZeroCopy(it)
     inc result, it.len
 
 proc readLeftCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
@@ -122,7 +123,7 @@ proc readLeft*(buf, into: var IOBuf, size: int): int {.inline.} =
     return
 
   InternIOBuf(buf).consumeLeft(size, true):
-    InternIOBuf(into).enqueueZeroCopyRight(move it)
+    InternIOBuf(into).enqueueRightZeroCopy(move it)
     inc result, it.len
 
 proc discardRight*(buf: var IOBuf, size: int) {.inline.} =
@@ -154,7 +155,7 @@ proc peekRight*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
     return
 
   InternIOBuf(buf).consumeRight(size, false):
-    InternIOBuf(into).enqueueZeroCopyRight(it)
+    InternIOBuf(into).enqueueRightZeroCopy(it)
     inc result, it.len
 
 proc readRightCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
@@ -183,5 +184,5 @@ proc readRight*(buf, into: var IOBuf, size: int): int {.inline.} =
     return
 
   InternIOBuf(buf).consumeRight(size, true):
-    InternIOBuf(into).enqueueZeroCopyRight(move it)
+    InternIOBuf(into).enqueueRightZeroCopy(move it)
     inc result, it.len

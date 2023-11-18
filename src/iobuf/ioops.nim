@@ -3,6 +3,7 @@ import slice2
 
 import intern/tls
 import intern/chunk
+import intern/region
 import intern/deprecated
 import intern/iobuf
 
@@ -18,21 +19,19 @@ when defined(linux):
     var vecBuf: array[MAX_IOVEC_NUM, IOVec]
     var vecChunk: array[MAX_IOVEC_NUM, Chunk]
 
-    while num < MAX_IOVEC_NUM:
-      if size >= maxSize:
-        break
-
+    for chunk in InternIOBuf(buf).allocChunk(maxSize):
       let left = maxSize - size
-      var chunk = InternIOBuf(buf).allocChunk(size, left)
 
       let len = min(chunk.leftSpace(), left)
       inc size, len
 
       vecBuf[num].iov_base = chunk.writeAddr
       vecBuf[num].iov_len = csize_t(len)
-      vecChunk[num] = move chunk
+      vecChunk[num] = chunk
 
       inc num
+      if num >= MAX_IOVEC_NUM:
+        break
 
     if num == 1:
       result = read(cint(fd), vecBuf[0].iov_base, int(vecBuf[0].iov_len))
@@ -46,26 +45,18 @@ when defined(linux):
 
     size = result
 
-    template appendBuf(idx, extendBuf) =
-      block appendBufScope:
-        if size > 0:
-          let len = min(int(vecBuf[idx].iov_len), size)
-          dec size, len
+    for idx in 0 ..< num:
+      if size > 0:
+        let len = min(int(vecBuf[idx].iov_len), size)
+        dec size, len
 
-          let oldLen = vecChunk[idx].len
-          vecChunk[idx].extendLen(len)
+        let oldLen = vecChunk[idx].len
+        vecChunk[idx].extendLen(len)
 
-          when extendBuf:
-            if InternIOBuf(buf).extendAdjacencyRegionRight(vecBuf[idx].iov_base, len):
-              break appendBufScope
+        var region = initRegion(vecChunk[idx], oldLen, len)
+        InternIOBuf(buf).enqueueRightZeroCopy(move region)
 
-          InternIOBuf(buf).enqueueZeroCopyRight(vecChunk[idx], oldLen, len)
       InternIOBuf(buf).releaseChunk(move vecChunk[idx])
-
-    appendBuf(0, true)
-
-    for idx in 1 ..< num:
-      appendBuf(idx, false)
 
   proc writev*(fd: cint, buf: var IOBuf, maxSize: int): int =
     var num = 0
@@ -102,10 +93,10 @@ when defined(linux):
       let dataLen = int(vecBuf[idx].iov_len)
 
       if size < dataLen:
-        InternIOBuf(buf).dequeueAdjustLeft(idx, size, result)
+        InternIOBuf(buf).dequeueLeftAdjust(idx, size, result)
         break
       elif size == dataLen:
-        InternIOBuf(buf).dequeueAdjustLeft(idx + 1, 0, result)
+        InternIOBuf(buf).dequeueLeftAdjust(idx + 1, 0, result)
         break
 
       dec size, dataLen

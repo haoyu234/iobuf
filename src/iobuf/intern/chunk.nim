@@ -95,7 +95,7 @@ proc dequeueChunk*(chunk: Chunk): Chunk {.inline.} =
 proc enqueueChunk*(chunk, nodeBuf: sink Chunk) {.inline.} =
   if nodeBuf.chunkQueue.isEmpty:
     GC_ref(nodeBuf)
-    chunk.chunkQueue.insertBack(nodeBuf.chunkQueue.InstruQueueNode)
+    chunk.chunkQueue.insertFront(nodeBuf.chunkQueue.InstruQueueNode)
 
 template toOpenArray*(chunk: Chunk): openArray[byte] =
   cast[ptr UncheckedArray[byte]](chunk.storage).toOpenArray(0, chunk.len - 1)
