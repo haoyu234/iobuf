@@ -2,7 +2,7 @@ import std/monotimes
 import std/strformat
 
 import ../src/iobuf/iobuf
-import ../src/iobuf/ioops
+import ../src/iobuf/vio
 import ../src/iobuf/intern/chunk
 import ../src/iobuf/intern/deprecated
 
@@ -44,7 +44,7 @@ proc writeBenchIOBuf(data: openArray[byte]) =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.appendZeroCopy(data[offset].getAddr, left)
+    buf.writeZeroCopy(data[offset].getAddr, left)
     left
 
   benchLoop(appendZeroCopy, SIZE)

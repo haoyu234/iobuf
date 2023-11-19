@@ -20,9 +20,9 @@ test "append":
 
   let num = DEFAULT_CHUNK_SIZE div SIZE
   for _ in 0 ..< num:
-    buf.appendCopy(slice)
-    buf.appendZeroCopy(data[0].getAddr, data.len)
-    buf.appendCopy(data[0].getAddr, data.len)
+    buf.writeCopy(slice)
+    buf.writeZeroCopy(data[0].getAddr, data.len)
+    buf.writeCopy(data[0].getAddr, data.len)
 
   assert buf.len == data.len * num * 3
 
@@ -38,29 +38,14 @@ test "consumeLeft Empty":
   var data2: array[SIZE * 2, byte]
 
   # peek empty buf
-  check buf.peekLeftCopy(data2[0].getAddr, 0) == 0
-  check buf.peekLeftCopy(data2[0].getAddr, SIZE + 1) == 0
-  check buf.peekLeftCopy(data2[0].getAddr, -1) == 0
+  check buf.peekCopy(data2[0].getAddr, 0) == 0
+  check buf.peekCopy(data2[0].getAddr, SIZE + 1) == 0
+  check buf.peekCopy(data2[0].getAddr, -1) == 0
 
   # read empty buf
-  check buf.readLeftCopy(data2[0].getAddr, 0) == 0
-  check buf.readLeftCopy(data2[0].getAddr, SIZE + 1) == 0
-  check buf.readLeftCopy(data2[0].getAddr, -1) == 0
-
-test "consumeRight Empty":
-
-  var buf = initIOBuf()
-  var data2: array[SIZE * 2, byte]
-
-  # peek empty buf
-  check buf.peekRightCopy(data2[0].getAddr, 0) == 0
-  check buf.peekRightCopy(data2[0].getAddr, SIZE + 1) == 0
-  check buf.peekRightCopy(data2[0].getAddr, -1) == 0
-
-  # read empty buf
-  check buf.readRightCopy(data2[0].getAddr, 0) == 0
-  check buf.readRightCopy(data2[0].getAddr, SIZE + 1) == 0
-  check buf.readRightCopy(data2[0].getAddr, -1) == 0
+  check buf.readCopy(data2[0].getAddr, 0) == 0
+  check buf.readCopy(data2[0].getAddr, SIZE + 1) == 0
+  check buf.readCopy(data2[0].getAddr, -1) == 0
 
 test "consumeLeft":
 
@@ -70,13 +55,13 @@ test "consumeLeft":
   var data4 = newSeq[byte]()
 
   template append() =
-    buf.appendZeroCopy(data2.getAddr, data2.len)
+    buf.writeZeroCopy(data2.getAddr, data2.len)
     data4.add(toOpenArray(cast[ptr UncheckedArray[byte]](data2.getAddr), 0,
         data2.len - 1))
 
   template checkPeekLeft(size) =
     zeroMem(data3[0].getAddr, data3.len)
-    check buf.peekLeftCopy(data3.getAddr, size) == size
+    check buf.peekCopy(data3.getAddr, size) == size
 
     let s = 0 ..< size
     check data4[s] == data3[s]
@@ -84,7 +69,7 @@ test "consumeLeft":
 
   template checkReadLeft(size) =
     zeroMem(data3[0].getAddr, data3.len)
-    check buf.readLeftCopy(data3.getAddr, size) == size
+    check buf.readCopy(data3.getAddr, size) == size
 
     let s = 0 ..< size
     check data4[s] == data3[s]
@@ -94,57 +79,6 @@ test "consumeLeft":
   template checkOp(size) =
     checkPeekLeft(size)
     checkReadLeft(size)
-
-  for _ in 0..12:
-    append()
-
-  checkOp(1)
-  checkOp(data2.len)
-  checkOp(data2.len - 1)
-  checkOp(data2.len + 1)
-  checkOp(data2.len)
-  checkOp(data2.len * 2 - 1)
-  checkOp(data2.len * 2)
-  checkOp(data2.len)
-  checkOp(data2.len * 2 + 1)
-  checkOp(data2.len)
-  checkOp(1)
-
-  check data4.len == 0
-  check buf.len == 0
-
-test "consumeRight":
-
-  var buf = initIOBuf()
-  let data2: array[2, byte] = [byte(1), 2]
-  var data3: array[20, byte]
-  var data4 = newSeq[byte]()
-
-  template append() =
-    buf.appendZeroCopy(data2.getAddr, data2.len)
-    data4.add(toOpenArray(cast[ptr UncheckedArray[byte]](data2.getAddr), 0,
-        data2.len - 1))
-
-  template checkPeekRight(size) =
-    zeroMem(data3[0].getAddr, data3.len)
-    check buf.peekRightCopy(data3.getAddr, size) == size
-
-    let s = (data4.len - size) ..< data4.len
-    check data4[s] == data3[0 ..< size]
-    check data4 == buf.toSeq
-
-  template checkReadRight(size) =
-    zeroMem(data3[0].getAddr, data3.len)
-    check buf.readRightCopy(data3.getAddr, size) == size
-
-    let s = (data4.len - size) ..< data4.len
-    check data4[s] == data3[0 ..< size]
-    data4.delete((data4.len - size) ..< data4.len)
-    check data4 == buf.toSeq
-
-  template checkOp(size) =
-    checkPeekRight(size)
-    checkReadRight(size)
 
   for _ in 0..12:
     append()

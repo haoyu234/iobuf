@@ -6,30 +6,17 @@ import iobuf
 template readImpl[T](s: var IOBuf, result: var T) =
   assert s.len >= sizeof(T)
 
-  when sizeof(T) == 1:
-    let b = InternIOBuf(s).leftByte(dequeue = true)
-
-    when T is bool:
-      result = b != byte(0)
-    else:
-      result = cast[T](b)
-  else:
-    if s.readLeftCopy(result.getAddr, sizeof(T)) != sizeof(T):
-      assert false
+  if s.readCopy(result.getAddr, sizeof(T)) != sizeof(T):
+    assert false
 
 template peekImpl[T](s: IOBuf, result: var T) =
   assert s.len >= sizeof(T)
 
-  when sizeof(T) == 1:
-    let b = InternIOBuf(s).leftByte(dequeue = false)
+  if s.peekCopy(result.getAddr, sizeof(T)) != sizeof(T):
+    assert false
 
-    when T is bool:
-      result = b != byte(0)
-    else:
-      result = cast[T](b)
-  else:
-    if s.peekLeftCopy(result.getAddr, sizeof(T)) != sizeof(T):
-      assert false
+template writeImpl[T](s: var IOBuf, data: T) =
+  s.writeCopy(data.getAddr, sizeof(T))
 
 proc readChar*(s: var IOBuf): char {.inline.} =
   s.readImpl(result)
@@ -38,10 +25,16 @@ proc peekChar*(s: IOBuf): char {.inline.} =
   s.peekImpl(result)
 
 proc readBool*(s: var IOBuf): bool {.inline.} =
-  s.readImpl(result)
+  var t: byte
+  s.readImpl(t)
+
+  result = t != 0
 
 proc peekBool*(s: IOBuf): bool {.inline.} =
-  s.peekImpl(result)
+  var t: byte
+  s.peekImpl(t)
+
+  result = t != 0
 
 proc readInt8*(s: var IOBuf): int8 {.inline.} =
   s.readImpl(result)
@@ -90,3 +83,37 @@ proc readUint64*(s: var IOBuf): uint64 {.inline.} =
 
 proc peekUint64*(s: IOBuf): uint64 {.inline.} =
   s.peekImpl(result)
+
+proc writeChar*(s: var IOBuf, data: char){.inline.} =
+  s.writeImpl(data)
+
+proc writeBool*(s: var IOBuf, data: bool){.inline.} =
+  var t: byte
+  if data:
+    t = 1
+
+  s.writeImpl(t)
+
+proc writeInt8*(s: var IOBuf, data: int8){.inline.} =
+  s.writeImpl(data)
+
+proc writeInt16*(s: var IOBuf, data: int16){.inline.} =
+  s.writeImpl(data)
+
+proc writeInt32*(s: var IOBuf, data: int32){.inline.} =
+  s.writeImpl(data)
+
+proc writeInt64*(s: var IOBuf, data: int64){.inline.} =
+  s.writeImpl(data)
+
+proc writeUint8*(s: var IOBuf, data: uint8){.inline.} =
+  s.writeImpl(data)
+
+proc writeUint16*(s: var IOBuf, data: uint16){.inline.} =
+  s.writeImpl(data)
+
+proc writeUint32*(s: var IOBuf, data: uint32){.inline.} =
+  s.writeImpl(data)
+
+proc writeUint64*(s: var IOBuf, data: uint64){.inline.} =
+  s.writeImpl(data)
