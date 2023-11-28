@@ -22,6 +22,6 @@ proc main =
     for _ in 0 ..< N:
       # data2.appendZeroCopy(data.toOpenArray(0, data.len - 1))
       for b in data:
-        data2.appendZeroCopy(b)
+        data2.append(b)
 
 main()

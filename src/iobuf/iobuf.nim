@@ -52,10 +52,17 @@ proc appendZeroCopy*(buf: var IOBuf, data: sink seq[byte]) {.inline.} =
   InternIOBuf(buf).enqueueRightZeroCopy(move region)
 
 proc appendZeroCopy*(buf: var IOBuf, data: IOBuf) {.inline.} =
-  for region in InternIOBuf(data):
-    InternIOBuf(buf).enqueueRightZeroCopy(region)
+  InternIOBuf(buf).enqueueRightZeroCopy(InternIOBuf(data))
 
-proc appendZeroCopy*(buf: var IOBuf, data: byte) {.inline.} =
+proc appendZeroCopy*(buf: var IOBuf, data: IOBuf, size: int) {.inline.} =
+  let minSize = min(size, data.len)
+
+  template peekLeft(it) =
+    InternIOBuf(buf).enqueueRightZeroCopy(it)
+
+  InternIOBuf(data).consumeLeft(minSize, dequeue = false, peekLeft)
+
+proc append*(buf: var IOBuf, data: byte) {.inline.} =
   var lastChunk = sharedTlsChunk()
   let len = lastChunk.len
   let dstAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(len))
@@ -67,6 +74,9 @@ proc appendZeroCopy*(buf: var IOBuf, data: byte) {.inline.} =
   InternIOBuf(buf).enqueueRightZeroCopy(move region)
 
 proc discardLeft*(buf: var IOBuf, size: int) {.inline.} =
+  if buf.len <= 0 or size <= 0:
+    return
+
   InternIOBuf(buf).dequeueLeft(size)
 
 proc peekLeftCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
@@ -75,27 +85,34 @@ proc peekLeftCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
 
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
-  InternIOBuf(buf).consumeLeft(size, false):
+  template peekLeft(it) =
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
+
+  InternIOBuf(buf).consumeLeft(size, dequeue = false, peekLeft)
 
 proc peekLeftCopy*(buf: IOBuf, data: var seq[byte], size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
   let oldLen = data.len
-  InternIOBuf(buf).consumeLeft(size, false):
+
+  template peekLeft(it) =
     data.add(it.toOpenArray)
+
+  InternIOBuf(buf).consumeLeft(size, dequeue = false, peekLeft)
 
   result = data.len - oldLen
 
-proc peekLeft*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
+proc peekLeftZeroCopy*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  InternIOBuf(buf).consumeLeft(size, false):
+  template peekLeft(it) =
     InternIOBuf(into).enqueueRightZeroCopy(it)
     inc result, it.len
+
+  InternIOBuf(buf).consumeLeft(size, dequeue = false, peekLeft)
 
 proc readLeftCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
@@ -103,9 +120,11 @@ proc readLeftCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
 
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
-  InternIOBuf(buf).consumeLeft(size, true):
+  template readLeft(it) =
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
+
+  InternIOBuf(buf).consumeLeft(size, dequeue = true, readLeft)
 
 proc readLeftCopy*(buf: var IOBuf, data: var seq[byte],
     size: int): int {.inline.} =
@@ -113,20 +132,28 @@ proc readLeftCopy*(buf: var IOBuf, data: var seq[byte],
     return
 
   let oldLen = data.len
-  InternIOBuf(buf).consumeLeft(size, true):
+
+  template readLeft(it) =
     data.add(it.toOpenArray)
+
+  InternIOBuf(buf).consumeLeft(size, dequeue = true, readLeft)
 
   result = data.len - oldLen
 
-proc readLeft*(buf, into: var IOBuf, size: int): int {.inline.} =
+proc readLeftZeroCopy*(buf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  InternIOBuf(buf).consumeLeft(size, true):
+  template readLeft(it) =
     InternIOBuf(into).enqueueRightZeroCopy(move it)
     inc result, it.len
 
+  InternIOBuf(buf).consumeLeft(size, dequeue = true, readLeft)
+
 proc discardRight*(buf: var IOBuf, size: int) {.inline.} =
+  if buf.len <= 0 or size <= 0:
+    return
+
   InternIOBuf(buf).dequeueRight(size)
 
 proc peekRightCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
@@ -135,9 +162,11 @@ proc peekRightCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
 
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
-  InternIOBuf(buf).consumeRight(size, false):
+  template peekRight(it) =
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
+
+  InternIOBuf(buf).consumeRight(size, dequeue = false, peekRight)
 
 proc peekRightCopy*(buf: IOBuf, data: var seq[byte],
     size: int): int {.inline.} =
@@ -145,18 +174,23 @@ proc peekRightCopy*(buf: IOBuf, data: var seq[byte],
     return
 
   let oldLen = data.len
-  InternIOBuf(buf).consumeRight(size, false):
+
+  template peekRight(it) =
     data.add(it.toOpenArray)
+
+  InternIOBuf(buf).consumeRight(size, dequeue = false, peekRight)
 
   result = data.len - oldLen
 
-proc peekRight*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
+proc peekRightZeroCopy*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  InternIOBuf(buf).consumeRight(size, false):
+  template peekRight(it) =
     InternIOBuf(into).enqueueRightZeroCopy(it)
     inc result, it.len
+
+  InternIOBuf(buf).consumeRight(size, dequeue = false, peekRight)
 
 proc readRightCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
@@ -164,9 +198,11 @@ proc readRightCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
 
   let data2 = cast[ptr UncheckedArray[byte]](data)
 
-  InternIOBuf(buf).consumeRight(size, true):
+  template readRight(it) =
     copyMem(data2[result].getAddr, it.leftAddr, it.len)
     inc result, it.len
+
+  InternIOBuf(buf).consumeRight(size, dequeue = true, readRight)
 
 proc readRightCopy*(buf: var IOBuf, data: var seq[byte],
     size: int): int {.inline.} =
@@ -174,15 +210,20 @@ proc readRightCopy*(buf: var IOBuf, data: var seq[byte],
     return
 
   let oldLen = data.len
-  InternIOBuf(buf).consumeRight(size, true):
+
+  template readRight(it) =
     data.add(it.toOpenArray)
+
+  InternIOBuf(buf).consumeRight(size, dequeue = true, readRight)
 
   result = data.len - oldLen
 
-proc readRight*(buf, into: var IOBuf, size: int): int {.inline.} =
+proc readRightZeroCopy*(buf, into: var IOBuf, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 
-  InternIOBuf(buf).consumeRight(size, true):
+  template readRight(it) =
     InternIOBuf(into).enqueueRightZeroCopy(move it)
     inc result, it.len
+
+  InternIOBuf(buf).consumeRight(size, dequeue = true, readRight)
