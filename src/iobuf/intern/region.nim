@@ -5,49 +5,53 @@ import indices
 
 type
   Region* = object
-    offset: int32
-    len: int32
+    offset: uint32
+    size: uint32
     chunk: Chunk
 
-template initRegion*(result: var Region,
-  chunk2: Chunk, offset2, size2: int) =
-  result.len = int32(size2)
-  result.offset = int32(offset2)
-  result.chunk = chunk2
+proc initRegion*(result: var Region,
+  chunk: Chunk, offset, size: int) {.inline.} =
 
-proc initRegion*(chunk: Chunk, offset, size: int): Region =
-  result.initRegion(chunk, offset, size)
+  result.size = uint32(size)
+  result.offset = uint32(offset)
+  result.chunk = chunk
 
-template len*(region: Region): int =
-  int(region.len)
+proc initRegion*(chunk: Chunk, offset, size: int): Region {.inline.} =
+  result.size = uint32(size)
+  result.offset = uint32(offset)
+  result.chunk = chunk
 
-template chunk*(region: Region): Chunk =
+proc len*(region: Region): int {.inline.} =
+  int(region.size)
+
+proc chunk*(region: Region): Chunk {.inline.} =
   region.chunk
 
-template leftAddr*(region: Region): pointer =
+proc leftAddr*(region: Region): pointer {.inline.} =
   cast[pointer](cast[uint](region.chunk.leftAddr) + uint(region.offset))
 
-template rightAddr*(region: Region): pointer =
-  cast[pointer](cast[uint](region.leftAddr) + uint(region.len))
+proc rightAddr*(region: Region): pointer {.inline.} =
+  cast[pointer](cast[uint](region.leftAddr) + uint(region.size))
 
-template extendLeft*(region: var Region, size: int) =
+proc extendLeft*(region: var Region, size: int) {.inline.} =
   dec region.offset, size
 
-template extendRight*(region: var Region, size: int) =
-  inc region.len, size
+proc extendRight*(region: var Region, size: int) {.inline.} =
+  inc region.size, size
 
-template discardLeft*(region: var Region, size: int) =
-  dec region.len, size
+proc discardLeft*(region: var Region, size: int) {.inline.} =
+  dec region.size, size
   inc region.offset, size
 
-template discardRight*(region: var Region, size: int) =
-  dec region.len, size
+proc discardRight*(region: var Region, size: int) {.inline.} =
+  dec region.size, size
 
 template toOpenArray*(region: Region): openArray[byte] =
-  cast[ptr UncheckedArray[byte]](region.leftAddr).toOpenArray(0, region.len - 1)
+  cast[ptr UncheckedArray[byte]](region.leftAddr).toOpenArray(0, int(
+      region.size) - 1)
 
 proc `$`*(region: Region): string {.inline.} =
-  result = fmt"[data: 0x{cast[uint](region.chunk.leftAddr):X}[{region.offset}..<{region.offset+region.len}], len: {region.len}]"
+  result = fmt"[data: 0x{cast[uint](region.chunk.leftAddr):X}[{region.offset}..<{region.offset+region.size}], len: {region.size}]"
 
 proc `[]`*[U, V: Ordinal](region: Region, x: HSlice[U, V]): Region {.inline.} =
 
@@ -58,6 +62,6 @@ proc `[]`*[U, V: Ordinal](region: Region, x: HSlice[U, V]): Region {.inline.} =
 
   result.initRegion(
     region.chunk,
-    int32(region.offset + a),
-    int32(L),
+    int(region.offset) + a,
+    L,
   )
