@@ -33,7 +33,7 @@ proc produce(fd: AsyncFD, data: seq[byte]) {.async.} =
   defer: unregister(fd)
 
   var buf = initIOBuf()
-  buf.appendZeroCopy(data[0].getAddr, data.len)
+  buf.writeZeroCopy(data[0].getAddr, data.len)
 
   check buf.len == data.len
 

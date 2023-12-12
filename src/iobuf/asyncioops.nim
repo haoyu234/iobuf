@@ -4,7 +4,7 @@ import std/nativesockets
 import std/net
 
 import iobuf
-import ioops
+import vio
 
 proc isDisconnectionError*(lastError: OSErrorCode): bool =
   ## Determines whether `lastError` is a disconnection error.

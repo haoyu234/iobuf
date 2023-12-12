@@ -24,7 +24,7 @@ proc readDataStrImpl(s: Stream, buffer: var string, slice: Slice[int]): int =
 
   result = min(slice.b + 1 - slice.a, stream.buf[].len)
   if result > 0:
-    result = stream.buf[].readLeftCopy(buffer[slice.a].getAddr, result)
+    result = stream.buf[].readCopy(buffer[slice.a].getAddr, result)
   else:
     result = 0
 
@@ -39,7 +39,7 @@ proc readDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
     cast[ptr byte](buffer)[] = byte(stream.buf[].readUint8)
     return
 
-  result = stream.buf[].readLeftCopy(buffer, bufLen)
+  result = stream.buf[].readCopy(buffer, bufLen)
 
 proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
   if bufLen <= 0:
@@ -52,7 +52,7 @@ proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
     cast[ptr byte](buffer)[] = byte(stream.buf[].peekUint8)
     return
 
-  result = stream.buf[].peekLeftCopy(buffer, bufLen)
+  result = stream.buf[].peekCopy(buffer, bufLen)
 
 proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
   if bufLen <= 0:
@@ -60,7 +60,7 @@ proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
 
   var writerStream = IOBufStream(s)
 
-  writerStream.buf[].appendCopy(buffer, bufLen)
+  writerStream.buf[].writeCopy(buffer, bufLen)
 
 proc newIOBufStream*(buf: ptr IOBuf): owned IOBufStream {.inline.} =
   result = IOBufStream()
