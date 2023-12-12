@@ -15,7 +15,7 @@ for i in 0 ..< SIZE:
 
 test "readSth":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   let s = newStringStream()
 
   s.writeData(data[0].getAddr, data.len)
@@ -38,7 +38,7 @@ test "readSth":
 
 test "consumeByte":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   let data2: array[2, byte] = [byte(1), 2]
 
   for _ in 0..<4:

@@ -40,9 +40,12 @@ iterator items*(buf: InternIOBuf): lent Region =
   for region in buf.regionQueue:
     yield region
 
-proc initIOBuf*(result: var InternIOBuf) {.inline.} =
+proc initBuf*(result: var InternIOBuf) {.inline.} =
   result.len = 0
   result.lastChunk = nil
+
+  when not USE_STD_DEQUE:
+    result.regionQueue.initDeque
 
 proc `=destroy`(buf: var InternIOBuf) {.`fix=destroy(var T)`.} =
   var lastChunk = buf.lastChunk

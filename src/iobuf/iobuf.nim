@@ -8,11 +8,8 @@ import slice2
 type
   IOBuf* = distinct InternIOBuf
 
-proc initIOBuf*(): IOBuf {.inline.} =
-  InternIOBuf(result).initIOBuf
-
-proc initIOBuf*(buf: var IOBuf) {.inline.} =
-  InternIOBuf(buf).initIOBuf
+proc initBuf*(buf: var IOBuf) {.inline.} =
+  InternIOBuf(buf).initBuf
 
 proc len*(buf: IOBuf): int {.inline.} =
   InternIOBuf(buf).len

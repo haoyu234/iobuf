@@ -26,7 +26,7 @@ template benchLoop(op, maxSize) =
   assert num == maxSize
 
 proc readBenchBuf() =
-  var buf = initIOBuf()
+  var buf: IOBuf
 
   let file = open("/dev/zero", FileMode.fmRead)
   let fd = file.getFileHandle
@@ -38,7 +38,7 @@ proc readBenchBuf() =
   benchLoop(body, SIZE)
 
 proc writeBenchIOBuf(data: openArray[byte]) =
-  var buf = initIOBuf()
+  var buf: IOBuf
 
   template appendZeroCopy(size): int =
     let offset = size mod data.len
