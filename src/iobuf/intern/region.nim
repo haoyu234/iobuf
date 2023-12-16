@@ -1,17 +1,12 @@
-import std/strformat
-
 import chunk
 import indices
 
-type
-  Region* = object
-    offset: uint32
-    size: uint32
-    chunk: Chunk
+type Region* = object
+  offset: uint32
+  size: uint32
+  chunk: Chunk
 
-proc initRegion*(result: var Region,
-  chunk: Chunk, offset, size: int) {.inline.} =
-
+proc initRegion*(result: var Region, chunk: Chunk, offset, size: int) {.inline.} =
   result.size = uint32(size)
   result.offset = uint32(offset)
   result.chunk = chunk
@@ -47,21 +42,12 @@ proc discardRight*(region: var Region, size: int) {.inline.} =
   dec region.size, size
 
 template toOpenArray*(region: Region): openArray[byte] =
-  cast[ptr UncheckedArray[byte]](region.leftAddr).toOpenArray(0, int(
-      region.size) - 1)
-
-proc `$`*(region: Region): string {.inline.} =
-  result = fmt"[data: 0x{cast[uint](region.chunk.leftAddr):X}[{region.offset}..<{region.offset+region.size}], len: {region.size}]"
+  cast[ptr UncheckedArray[byte]](region.leftAddr).toOpenArray(0, int(region.size) - 1)
 
 proc `[]`*[U, V: Ordinal](region: Region, x: HSlice[U, V]): Region {.inline.} =
-
   let a = region ^^ x.a
   let L = (region ^^ x.b) - a + 1
 
   checkSliceOp(region.len, a, a + L)
 
-  result.initRegion(
-    region.chunk,
-    int(region.offset) + a,
-    L,
-  )
+  result.initRegion(region.chunk, int(region.offset) + a, L)

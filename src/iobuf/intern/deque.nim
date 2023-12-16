@@ -1,16 +1,13 @@
 import std/math
 import system/ansi_c
 
-import deprecated
-
-const INLINE_STORAGE_CAPACITY = 2
+const INLINE_STORAGE_CAPACITY = 4
 const DEFAULT_STORAGE_CAPACITY = 32
 
-type
-  Deque*[T] = object
-    len, head, tail, mask: int16
-    storage: ptr UncheckedArray[T]
-    inlineStorage: array[INLINE_STORAGE_CAPACITY, T]
+type Deque*[T] = object
+  len, head, tail, mask: int32
+  storage: ptr UncheckedArray[T]
+  inlineStorage: array[INLINE_STORAGE_CAPACITY, T]
 
 proc allocStorage[T](capacity: int): ptr UncheckedArray[T] {.inline.} =
   cast[ptr UncheckedArray[T]](c_calloc(csize_t(sizeof(T)), csize_t(capacity)))
@@ -20,16 +17,17 @@ proc freeStorage(storage: pointer) {.inline.} =
 
 template initImpl[T](result: var Deque[T], initSize: int) =
   if initSize > INLINE_STORAGE_CAPACITY:
-    let cap = if initSize > DEFAULT_STORAGE_CAPACITY:
-      nextPowerOfTwo(initSize)
-    else:
-      DEFAULT_STORAGE_CAPACITY
+    let cap =
+      if initSize > DEFAULT_STORAGE_CAPACITY:
+        nextPowerOfTwo(initSize)
+      else:
+        DEFAULT_STORAGE_CAPACITY
 
     result.mask = int16(cap) - 1
     result.storage = allocStorage[T](cap)
   else:
     result.mask = 1
-    result.storage = cast[ptr UncheckedArray[T]](result.inlineStorage[0].getAddr)
+    result.storage = cast[ptr UncheckedArray[T]](result.inlineStorage[0].addr)
 
 template checkIfInitialized(deq: typed) =
   if deq.mask == 0:
@@ -39,11 +37,11 @@ template destroy(x: untyped) =
   reset(x)
 
 proc checkAndFreeStorage[T](deq: Deque[T]) {.inline.} =
-  let inlineStorage = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].getAddr)
+  let inlineStorage = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].addr)
   if deq.storage != inlineStorage:
     freeStorage(deq.storage)
 
-proc `=destroy`*[T](deq: var Deque[T]) {.inline, `fix=destroy(var T)`.} =
+proc `=destroy`*[T](deq: Deque[T]) {.inline.} =
   if deq.storage.isNil:
     return
 
@@ -63,12 +61,12 @@ proc `=sink`*[T](deq: var Deque[T], source: Deque[T]) {.inline.} =
   deq.tail = source.tail
   deq.mask = source.mask
 
-  let inlineStorage = cast[ptr UncheckedArray[T]](source.inlineStorage[0].getAddr)
+  let inlineStorage = cast[ptr UncheckedArray[T]](source.inlineStorage[0].addr)
   if source.storage != inlineStorage:
     deq.storage = source.storage
     return
 
-  deq.storage = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].getAddr)
+  deq.storage = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].addr)
 
   var i = source.head
   for c in 0 ..< source.len:
@@ -89,9 +87,9 @@ proc `=copy`*[T](deq: var Deque[T], source: Deque[T]) {.inline.} =
       deq.storage[c] = source.storage[i]
       i = (i + 1) and source.mask
 
-proc initDeque*[T](deq: var Deque[T],
-  initSize: int = INLINE_STORAGE_CAPACITY) {.inline.} =
-
+proc initDeque*[T](
+    deq: var Deque[T], initSize: int = INLINE_STORAGE_CAPACITY
+) {.inline.} =
   initImpl(deq, initSize)
 
 proc len*[T](deq: Deque[T]): int {.inline.} =
@@ -105,13 +103,12 @@ template emptyCheck(deq) =
 
 template xBoundsCheck(deq, i) =
   # Bounds check for the array like accesses.
-  when compileOption("boundChecks"): # `-d:danger` or `--checks:off` should disable this.
+  when compileOption("boundChecks"):
+    # `-d:danger` or `--checks:off` should disable this.
     if unlikely(i >= deq.len): # x < deq.low is taken care by the Natural parameter
-      raise newException(IndexDefect,
-                         "Out of bounds: " & $i & " > " & $(deq.len - 1))
+      raise newException(IndexDefect, "Out of bounds: " & $i & " > " & $(deq.len - 1))
     if unlikely(i < 0): # when used with BackwardsIndex
-      raise newException(IndexDefect,
-                         "Out of bounds: " & $i & " < 0")
+      raise newException(IndexDefect, "Out of bounds: " & $i & " < 0")
 
 proc `[]`*[T](deq: Deque[T], i: Natural): lent T {.inline.} =
   xBoundsCheck(deq, i)
@@ -166,8 +163,11 @@ proc expandIfNeeded[T](deq: var Deque[T]) =
     var n = allocStorage[T](newCap)
     var i = 0
     for x in mitems(deq):
-      when nimvm: n[i] = x # workaround for VM bug
-      else: n[i] = move(x)
+      when nimvm:
+        n[i] = x
+        # workaround for VM bug
+      else:
+        n[i] = move(x)
       inc i
 
     checkAndFreeStorage(deq)
@@ -218,13 +218,15 @@ proc popLast*[T](deq: var Deque[T]): T {.inline.} =
   result = move deq.storage[deq.tail]
 
 proc clear*[T](deq: var Deque[T]) {.inline.} =
-  for el in mitems(deq): destroy(el)
+  for el in mitems(deq):
+    destroy(el)
   deq.len = 0
   deq.tail = deq.head
 
 proc `$`*[T](deq: Deque[T]): string =
   result = "["
   for x in deq:
-    if result.len > 1: result.add(", ")
+    if result.len > 1:
+      result.add(", ")
     result.addQuoted(x)
   result.add("]")

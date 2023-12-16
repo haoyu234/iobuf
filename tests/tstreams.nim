@@ -3,7 +3,6 @@ import std/streams
 
 import iobuf/iobuf
 import iobuf/streams
-import iobuf/intern/deprecated
 
 const SIZE = 100
 
@@ -12,12 +11,12 @@ for i in 0 ..< SIZE:
   data.add(byte(i mod int(high(byte))))
 
 test "read stream":
-
   var buf: IOBuf
+  buf.initBuf()
   buf.writeZeroCopy(data)
 
   var data2 = byte(0)
-  var reader = newIOBufStream(buf.getAddr)
+  var reader = newIOBufStream(buf.addr)
 
   var idx = byte(0)
   while not reader.atEnd:
@@ -29,9 +28,10 @@ test "read stream":
   check buf.len == 0
 
 test "write stream":
-
   var buf: IOBuf
-  var writer = newIOBufStream(buf.getAddr)
+  buf.initBuf()
+
+  var writer = newIOBufStream(buf.addr)
 
   for data2 in data:
     writer.write(data2)

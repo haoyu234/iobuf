@@ -1,12 +1,10 @@
 import intern/chunk
 import intern/region
-import intern/deprecated
 import intern/iobuf
 
 import slice2
 
-type
-  IOBuf* = distinct InternalIOBuf
+type IOBuf* = distinct InternalIOBuf
 
 proc initBuf*(buf: var IOBuf) {.inline.} =
   InternalIOBuf(buf).initBuf
@@ -31,7 +29,7 @@ proc writeCopy*(buf: var IOBuf, data: pointer, len: int) {.inline.} =
   InternalIOBuf(buf).enqueueRightCopy(data, len)
 
 proc writeCopy*(buf: var IOBuf, data: openArray[byte]) {.inline.} =
-  InternalIOBuf(buf).enqueueRightCopy(data[0].getAddr, data.len)
+  InternalIOBuf(buf).enqueueRightCopy(data[0].addr, data.len)
 
 proc writeCopy*(buf: var IOBuf, data: Slice2[byte]) {.inline.} =
   InternalIOBuf(buf).enqueueRightCopy(data.leftAddr, data.len)
@@ -59,11 +57,17 @@ proc writeZeroCopy*(buf: var IOBuf, data: IOBuf, size: int) {.inline.} =
   for region in InternalIOBuf(buf).visitLeftRegion(minSize):
     InternalIOBuf(buf).enqueueRightZeroCopy(region)
 
-proc discardBytes*(buf: var IOBuf, size: int) {.inline.} =
+proc consumedLeft*(buf: var IOBuf, size: int) {.inline.} =
   if buf.len <= 0 or size <= 0:
     return
 
   InternalIOBuf(buf).dequeueLeft(size)
+
+proc consumedRight*(buf: var IOBuf, size: int) {.inline.} =
+  if buf.len <= 0 or size <= 0:
+    return
+
+  InternalIOBuf(buf).dequeueRight(size)
 
 proc peekCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
@@ -101,8 +105,7 @@ proc readCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
 
     copyMem(cast[pointer](dstAddr), region.leftAddr, region.len)
 
-proc readCopy*(buf: var IOBuf, data: var seq[byte],
-    size: int): int {.inline.} =
+proc readCopy*(buf: var IOBuf, data: var seq[byte], size: int): int {.inline.} =
   if size <= 0 or buf.len <= 0:
     return
 

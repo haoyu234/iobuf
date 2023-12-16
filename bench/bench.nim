@@ -2,9 +2,8 @@ import std/monotimes
 import std/strformat
 
 import ../src/iobuf/iobuf
-import ../src/iobuf/vio
+import ../src/iobuf/io
 import ../src/iobuf/intern/chunk
-import ../src/iobuf/intern/deprecated
 
 const SIZE = 100000000
 
@@ -27,34 +26,38 @@ template benchLoop(op, maxSize) =
 
 proc readBenchBuf() =
   var buf: IOBuf
+  buf.initBuf()
 
   let file = open("/dev/zero", FileMode.fmRead)
   let fd = file.getFileHandle
-  defer: file.close()
+  defer:
+    file.close()
 
   template body(size): int =
-    readv(cint(fd), buf, SIZE - size)
+    readIOBuf(cint(fd), buf, SIZE - size)
 
   benchLoop(body, SIZE)
 
 proc writeBenchIOBuf(data: openArray[byte]) =
   var buf: IOBuf
+  buf.initBuf()
 
   template appendZeroCopy(size): int =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
     assert left > 0
-    buf.writeZeroCopy(data[offset].getAddr, left)
+    buf.writeZeroCopy(data[offset].addr, left)
     left
 
   benchLoop(appendZeroCopy, SIZE)
 
   let file = open("/dev/null", FileMode.fmWrite)
   let fd = file.getFileHandle
-  defer: file.close()
+  defer:
+    file.close()
 
   template body(size): int =
-    writev(cint(fd), buf, SIZE - size)
+    writeIOBuf(cint(fd), buf, SIZE - size)
 
   benchLoop(body, SIZE)
 
@@ -63,10 +66,11 @@ proc readBenchSeq() =
   var buf: array[DEFAULT_CHUNK_SIZE, byte]
 
   let file = open("/dev/zero", FileMode.fmRead)
-  defer: file.close()
+  defer:
+    file.close()
 
   template body(size): int =
-    let r = file.readBuffer(buf[0].getAddr, min(SIZE - size, buf.len))
+    let r = file.readBuffer(buf[0].addr, min(SIZE - size, buf.len))
     data.add(buf.toOpenArray(0, r - 1))
     r
 
@@ -74,18 +78,20 @@ proc readBenchSeq() =
 
 proc writeBenchSeq(data: openArray[byte]) =
   let file = open("/dev/null", FileMode.fmWrite)
-  defer: file.close()
+  defer:
+    file.close()
 
   template body(size): int =
     let offset = size mod data.len
     let left = min(data.len - offset, SIZE - size)
-    file.writeBuffer(data[offset].getAddr, left)
+    file.writeBuffer(data[offset].addr, left)
 
   benchLoop(body, SIZE)
 
 proc writeBenchSeq2(data: openArray[byte]) =
   let file = open("/dev/null", FileMode.fmWrite)
-  defer: file.close()
+  defer:
+    file.close()
 
   var buf = newSeq[byte]()
 
@@ -98,22 +104,21 @@ proc writeBenchSeq2(data: openArray[byte]) =
   benchLoop(appendZeroCopy, SIZE)
 
   template body(size): int =
-    file.writeBuffer(buf[size].getAddr, SIZE - size)
+    file.writeBuffer(buf[size].addr, SIZE - size)
 
   benchLoop(body, SIZE)
 
-type
-  BenchTp = enum
-    ReadBenchSeq,
-    WriteBenchSeq,
-    WriteBenchSeq2,
-    ReadBenchIOBuf,
-    WriteBenchIOBuf,
+type BenchTp = enum
+  ReadBenchSeq
+  WriteBenchSeq
+  WriteBenchSeq2
+  ReadBenchIOBuf
+  WriteBenchIOBuf
 
 proc bench(tp: BenchTp, info: string) =
   let startTs = getMonoTime().ticks
 
-  case tp:
+  case tp
   of ReadBenchSeq:
     readBenchSeq()
   of ReadBenchIOBuf:

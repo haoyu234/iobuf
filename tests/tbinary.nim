@@ -1,7 +1,5 @@
 import std/unittest
 
-import iobuf/intern/deprecated
-
 import iobuf/iobuf
 import iobuf/binary
 
@@ -14,12 +12,11 @@ for i in 0 ..< SIZE:
   data.add(byte(i mod int(high(byte))))
 
 test "readSth":
-
   var buf: IOBuf
   let s = newStringStream()
 
-  s.writeData(data[0].getAddr, data.len)
-  buf.writeZeroCopy(data[0].getAddr, data.len)
+  s.writeData(data[0].addr, data.len)
+  buf.writeZeroCopy(data[0].addr, data.len)
 
   s.setPosition(0)
 
@@ -37,12 +34,11 @@ test "readSth":
   checkOp readInt64
 
 test "consumeByte":
-
   var buf: IOBuf
   let data2: array[2, byte] = [byte(1), 2]
 
-  for _ in 0..<4:
-    buf.writeZeroCopy(data2.getAddr, data2.len)
+  for _ in 0 ..< 4:
+    buf.writeZeroCopy(data2.addr, data2.len)
 
   check buf.len == 8
 

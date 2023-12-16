@@ -1,59 +1,42 @@
 import std/exitprocs
 
 import chunk
+import instru/queue
 
-type
-  ThreadTlsObj = object
-    lastChunk*: Chunk
+type ThreadTlsObj = object
+  registeredExit: bool
+  queuedChunk: InstruQueue
 
 var g_threadTls* {.threadvar.}: ThreadTlsObj
 
 proc removeAllChunk() {.noconv.} =
-  var lastChunk = move g_threadTls.lastChunk
+  let head = g_threadTls.queuedChunk.addr
 
-  while not lastChunk.isNil:
-    lastChunk = lastChunk.dequeueChunk()
+  while not head[].isEmpty:
+    discard head[].dequeueChunk()
 
 proc registerExitProc() =
+  if g_threadTls.registeredExit:
+    return
+
   {.gcsafe.}:
-    once:
-      addExitProc(removeAllChunk)
+    g_threadTls.registeredExit = true
+    addExitProc(removeAllChunk)
 
 proc allocTlsChunk*(): Chunk {.inline.} =
-  var lastChunk = move g_threadTls.lastChunk
+  let head = g_threadTls.queuedChunk.addr
 
   registerExitProc()
 
-  while true:
-    if lastChunk.isNil:
-      result = newChunk(DEFAULT_CHUNK_SIZE)
-      return
-
-    if lastChunk.isFull:
-      lastChunk = result.dequeueChunk()
+  while not head[].isEmpty:
+    let chunk = head[].dequeueChunk()
+    if chunk.isFull:
       continue
 
-    g_threadTls.lastChunk = lastChunk.dequeueChunk()
-    result = move lastChunk
+    result = chunk
     return
 
-proc sharedTlsChunk*(): Chunk {.inline.} =
-  var lastChunk = g_threadTls.lastChunk
-
-  registerExitProc()
-
-  while true:
-    if lastChunk.isNil:
-      result = newChunk(DEFAULT_CHUNK_SIZE)
-      g_threadTls.lastChunk = result
-      return
-
-    if lastChunk.isFull:
-      lastChunk = lastChunk.dequeueChunk()
-      continue
-
-    result = move lastChunk
-    return
+  result = newChunk(DEFAULT_CHUNK_SIZE)
 
 proc releaseTlsChunk*(chunk: sink Chunk) =
   if chunk.isFull:
@@ -61,7 +44,4 @@ proc releaseTlsChunk*(chunk: sink Chunk) =
 
   registerExitProc()
 
-  if not g_threadTls.lastChunk.isNil:
-    chunk.enqueueChunk(g_threadTls.lastChunk)
-
-  g_threadTls.lastChunk = move chunk
+  g_threadTls.queuedChunk.enqueueChunkUnsafe(chunk)

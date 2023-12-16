@@ -16,12 +16,14 @@ when defined(setSamplingFrequency):
   setSamplingFrequency(1)
 enableProfiling()
 
-proc main =
-  for _ in 0..N:
-    var data2 = initBuf()
+proc main() =
+  for _ in 0 .. N:
+    var buf: IOBuf
+    buf.initBuf()
+
     for _ in 0 ..< N:
-      # data2.writeZeroCopy(data.toOpenArray(0, data.len - 1))
+      # buf.writeZeroCopy(data.toOpenArray(0, data.len - 1))
       for b in data:
-        data2.writeCopy(b)
+        buf.writeCopy(b)
 
 main()

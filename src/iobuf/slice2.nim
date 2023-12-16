@@ -1,10 +1,8 @@
 import intern/indices
-import intern/deprecated
 
-type
-  Slice2*[T] = object
-    len: int
-    data: ptr UncheckedArray[T]
+type Slice2*[T] = object
+  len: int
+  data: ptr UncheckedArray[T]
 
 template len*[T](s: Slice2[T]): int =
   s.len
@@ -15,34 +13,29 @@ template `[]`*[T](s: Slice2[T], idx: Natural): var T =
 template `[]`*[T](s: Slice2[T], idx: BackwardsIndex): var T =
   s.data[s.len - int(idx)]
 
-proc slice*(T: typedesc,
-  data: pointer, offset, len: int): Slice2[T] {.inline.} =
-
+proc slice*(T: typedesc, data: pointer, offset, len: int): Slice2[T] {.inline.} =
   result.len = len
-  result.data = cast[ptr UncheckedArray[T]](cast[uint](data) + uint(offset *
-      sizeof(T)))
+  result.data = cast[ptr UncheckedArray[T]](cast[uint](data) + uint(offset * sizeof(T)))
 
-proc slice*(T: typedesc,
-  data: pointer, len: int): Slice2[T] {.inline.} =
-
+proc slice*(T: typedesc, data: pointer, len: int): Slice2[T] {.inline.} =
   result.len = len
   result.data = cast[ptr UncheckedArray[T]](data)
 
 proc slice*[T](d: ptr UncheckedArray[T], offset, len: int): Slice2[T] {.inline.} =
-  slice(T, d[offset].getAddr, len)
+  slice(T, d[offset].addr, len)
 
 proc slice*[T](d: ptr UncheckedArray[T], len: int): Slice2[T] {.inline.} =
   slice(T, d, len)
 
 proc slice*[T](d: openArray[T], offset, len: int): Slice2[T] {.inline.} =
-  slice(T, d[offset].getAddr, len)
+  slice(T, d[offset].addr, len)
 
 proc slice*[T](d: openArray[T], len: int): Slice2[T] {.inline.} =
   assert len <= d.len
-  slice(T, d[0].getAddr, len)
+  slice(T, d[0].addr, len)
 
 proc slice*[T](d: openArray[T]): Slice2[T] {.inline.} =
-  slice(T, d[0].getAddr, d.len)
+  slice(T, d[0].addr, d.len)
 
 proc toSeq*[T](s: Slice2[T]): seq[T] {.inline.} =
   result.add(s.toOpenArray())
@@ -51,7 +44,7 @@ template leftAddr*[T](s: Slice2[T]): pointer =
   s.data
 
 template rightAddr*[T](s: Slice2[T]): pointer =
-  s.data[s.len].getAddr
+  s.data[s.len].addr
 
 template toOpenArray*[T](s: Slice2[T]): openArray[T] =
   s.data.toOpenArray(0, s.len - 1)
@@ -84,7 +77,8 @@ template equalsImpl(t) {.dirty.} =
 
       result = true
 
-  template `==`*[T](d: t[T], s: Slice2[T]): bool = `==`(s, d)
+  template `==`*[T](d: t[T], s: Slice2[T]): bool =
+    `==`(s, d)
 
 equalsImpl(seq)
 equalsImpl(Slice2)
@@ -102,7 +96,8 @@ proc `==`*[S, T](s: Slice2[T], d: array[S, T]): bool =
 
     result = true
 
-template `==`*[S, T](d: array[S, T], s: Slice2[T]): bool = `==`(s, d)
+template `==`*[S, T](d: array[S, T], s: Slice2[T]): bool =
+  `==`(s, d)
 
 proc `$`*[T](s: Slice2[T]): string =
   let data = s.data

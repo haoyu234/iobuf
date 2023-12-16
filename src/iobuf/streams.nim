@@ -2,11 +2,9 @@ import std/streams
 
 import iobuf
 import binary
-import intern/deprecated
 
-type
-  IOBufStream* = ref object of StreamObj
-    buf: ptr IOBuf
+type IOBufStream* = ref object of StreamObj
+  buf: ptr IOBuf
 
 proc closeImpl(s: Stream) =
   var stream = IOBufStream(s)
@@ -24,7 +22,7 @@ proc readDataStrImpl(s: Stream, buffer: var string, slice: Slice[int]): int =
 
   result = min(slice.b + 1 - slice.a, stream.buf[].len)
   if result > 0:
-    result = stream.buf[].readCopy(buffer[slice.a].getAddr, result)
+    result = stream.buf[].readCopy(buffer[slice.a].addr, result)
   else:
     result = 0
 

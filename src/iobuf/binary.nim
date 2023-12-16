@@ -1,22 +1,21 @@
 import intern/iobuf
-import intern/deprecated
 
 import iobuf
 
 template readImpl[T](s: var IOBuf, result: var T) =
   assert s.len >= sizeof(T)
 
-  if s.readCopy(result.getAddr, sizeof(T)) != sizeof(T):
+  if s.readCopy(result.addr, sizeof(T)) != sizeof(T):
     assert false
 
 template peekImpl[T](s: IOBuf, result: var T) =
   assert s.len >= sizeof(T)
 
-  if s.peekCopy(result.getAddr, sizeof(T)) != sizeof(T):
+  if s.peekCopy(result.addr, sizeof(T)) != sizeof(T):
     assert false
 
 template writeImpl[T](s: var IOBuf, data: T) =
-  s.writeCopy(data.getAddr, sizeof(T))
+  s.writeCopy(data.addr, sizeof(T))
 
 proc readChar*(s: var IOBuf): char {.inline.} =
   s.readImpl(result)
@@ -84,36 +83,33 @@ proc readUint64*(s: var IOBuf): uint64 {.inline.} =
 proc peekUint64*(s: IOBuf): uint64 {.inline.} =
   s.peekImpl(result)
 
-proc writeChar*(s: var IOBuf, data: char){.inline.} =
+proc writeChar*(s: var IOBuf, data: char) {.inline.} =
   s.writeImpl(data)
 
-proc writeBool*(s: var IOBuf, data: bool){.inline.} =
-  var t: byte
-  if data:
-    t = 1
-
+proc writeBool*(s: var IOBuf, data: bool) {.inline.} =
+  let t = byte(ord(data))
   s.writeImpl(t)
 
-proc writeInt8*(s: var IOBuf, data: int8){.inline.} =
+proc writeInt8*(s: var IOBuf, data: int8) {.inline.} =
   s.writeImpl(data)
 
-proc writeInt16*(s: var IOBuf, data: int16){.inline.} =
+proc writeInt16*(s: var IOBuf, data: int16) {.inline.} =
   s.writeImpl(data)
 
-proc writeInt32*(s: var IOBuf, data: int32){.inline.} =
+proc writeInt32*(s: var IOBuf, data: int32) {.inline.} =
   s.writeImpl(data)
 
-proc writeInt64*(s: var IOBuf, data: int64){.inline.} =
+proc writeInt64*(s: var IOBuf, data: int64) {.inline.} =
   s.writeImpl(data)
 
-proc writeUint8*(s: var IOBuf, data: uint8){.inline.} =
+proc writeUint8*(s: var IOBuf, data: uint8) {.inline.} =
   s.writeImpl(data)
 
-proc writeUint16*(s: var IOBuf, data: uint16){.inline.} =
+proc writeUint16*(s: var IOBuf, data: uint16) {.inline.} =
   s.writeImpl(data)
 
-proc writeUint32*(s: var IOBuf, data: uint32){.inline.} =
+proc writeUint32*(s: var IOBuf, data: uint32) {.inline.} =
   s.writeImpl(data)
 
-proc writeUint64*(s: var IOBuf, data: uint64){.inline.} =
+proc writeUint64*(s: var IOBuf, data: uint64) {.inline.} =
   s.writeImpl(data)
