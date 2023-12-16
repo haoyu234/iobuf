@@ -32,7 +32,7 @@ proc produce(fd: AsyncFD, data: seq[byte]) {.async.} =
 
   defer: unregister(fd)
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   buf.writeZeroCopy(data[0].getAddr, data.len)
 
   check buf.len == data.len
@@ -53,7 +53,7 @@ proc consume(fd: AsyncFD, buf: ptr IOBuf, maxSize: int) {.async.} =
 
 test "readInto":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   var fds: array[2, cint]
 
   check pipe(fds) == 0
@@ -68,7 +68,7 @@ test "readInto":
 
 test "write":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   var fds: array[2, cint]
 
   check pipe(fds) == 0

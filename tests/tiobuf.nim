@@ -16,7 +16,7 @@ let slice = data.slice()
 
 test "append":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
 
   let num = DEFAULT_CHUNK_SIZE div SIZE
   for _ in 0 ..< num:
@@ -34,7 +34,7 @@ test "append":
 
 test "consumeLeft Empty":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   var data2: array[SIZE * 2, byte]
 
   # peek empty buf
@@ -49,7 +49,7 @@ test "consumeLeft Empty":
 
 test "consumeLeft":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   let data2: array[2, byte] = [byte(1), 2]
   var data3: array[20, byte]
   var data4 = newSeq[byte]()

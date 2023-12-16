@@ -18,7 +18,7 @@ enableProfiling()
 
 proc main =
   for _ in 0..N:
-    var data2 = initIOBuf()
+    var data2 = initBuf()
     for _ in 0 ..< N:
       # data2.writeZeroCopy(data.toOpenArray(0, data.len - 1))
       for b in data:

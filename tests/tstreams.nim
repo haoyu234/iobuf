@@ -13,7 +13,7 @@ for i in 0 ..< SIZE:
 
 test "read stream":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   buf.writeZeroCopy(data)
 
   var data2 = byte(0)
@@ -30,7 +30,7 @@ test "read stream":
 
 test "write stream":
 
-  var buf = initIOBuf()
+  var buf: IOBuf
   var writer = newIOBufStream(buf.getAddr)
 
   for data2 in data:
