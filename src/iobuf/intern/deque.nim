@@ -8,14 +8,14 @@ const DEFAULT_STORAGE_CAPACITY = 32
 
 type
   Deque*[T] = object
-    len, head, tail, mask: int
-    data: pointer
+    len, head, tail, mask: int16
+    storage: ptr UncheckedArray[T]
     inlineStorage: array[INLINE_STORAGE_CAPACITY, T]
 
-template allocStorage[T](capacity: int): ptr UncheckedArray[T] =
+proc allocStorage[T](capacity: int): ptr UncheckedArray[T] {.inline.} =
   cast[ptr UncheckedArray[T]](c_calloc(csize_t(sizeof(T)), csize_t(capacity)))
 
-template freeStorage(storage: pointer) =
+proc freeStorage(storage: pointer) {.inline.} =
   c_free(storage)
 
 template initImpl[T](result: var Deque[T], initSize: int) =
@@ -25,29 +25,26 @@ template initImpl[T](result: var Deque[T], initSize: int) =
     else:
       DEFAULT_STORAGE_CAPACITY
 
-    result.mask = cap - 1
-    result.data = allocStorage[T](cap)
+    result.mask = int16(cap) - 1
+    result.storage = allocStorage[T](cap)
   else:
     result.mask = 1
-    result.data = cast[ptr UncheckedArray[T]](result.inlineStorage[0].getAddr)
+    result.storage = cast[ptr UncheckedArray[T]](result.inlineStorage[0].getAddr)
 
 template checkIfInitialized(deq: typed) =
   if deq.mask == 0:
     initImpl(deq, INLINE_STORAGE_CAPACITY)
 
-template storage[T](deq: Deque[T]): ptr UncheckedArray[T] =
-  cast[ptr UncheckedArray[T]](deq.data)
-
 template destroy(x: untyped) =
   reset(x)
 
-template checkAndFreeStorage[T](deq: Deque[T]) =
-  let inlineStorage = deq.inlineStorage[0].getAddr
-  if deq.data != inlineStorage:
-    freeStorage(deq.data)
+proc checkAndFreeStorage[T](deq: Deque[T]) {.inline.} =
+  let inlineStorage = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].getAddr)
+  if deq.storage != inlineStorage:
+    freeStorage(deq.storage)
 
 proc `=destroy`*[T](deq: var Deque[T]) {.inline, `fix=destroy(var T)`.} =
-  if deq.data.isNil:
+  if deq.storage.isNil:
     return
 
   var i = deq.head
@@ -58,7 +55,7 @@ proc `=destroy`*[T](deq: var Deque[T]) {.inline, `fix=destroy(var T)`.} =
   checkAndFreeStorage(deq)
 
 proc `=sink`*[T](deq: var Deque[T], source: Deque[T]) {.inline.} =
-  if not deq.data.isNil:
+  if not deq.storage.isNil:
     `=destroy`(deq)
 
   deq.len = source.len
@@ -66,12 +63,12 @@ proc `=sink`*[T](deq: var Deque[T], source: Deque[T]) {.inline.} =
   deq.tail = source.tail
   deq.mask = source.mask
 
-  let inlineStorage = source.inlineStorage[0].getAddr
-  if source.data != inlineStorage:
-    deq.data = source.data
+  let inlineStorage = cast[ptr UncheckedArray[T]](source.inlineStorage[0].getAddr)
+  if source.storage != inlineStorage:
+    deq.storage = source.storage
     return
 
-  deq.data = deq.inlineStorage[0].getAddr
+  deq.storage = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].getAddr)
 
   var i = source.head
   for c in 0 ..< source.len:
@@ -79,7 +76,7 @@ proc `=sink`*[T](deq: var Deque[T], source: Deque[T]) {.inline.} =
     i = (i + 1) and source.mask
 
 proc `=copy`*[T](deq: var Deque[T], source: Deque[T]) {.inline.} =
-  if deq.data != source.data:
+  if deq.storage != source.storage:
     `=destroy`(deq)
 
     deq.len = source.len
@@ -175,7 +172,7 @@ proc expandIfNeeded[T](deq: var Deque[T]) =
 
     checkAndFreeStorage(deq)
 
-    deq.data = n
+    deq.storage = n
     deq.mask = newCap - 1
     deq.tail = deq.len
     deq.head = 0
