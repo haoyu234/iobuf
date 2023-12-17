@@ -1,10 +1,9 @@
 import std/asyncdispatch
 import std/oserrors
 import std/nativesockets
-import std/net
 
-import iobuf
-import io
+import ./iobuf
+import ./io
 
 proc isDisconnectionError*(lastError: OSErrorCode): bool =
   ## Determines whether `lastError` is a disconnection error.
@@ -21,12 +20,14 @@ proc isDisconnectionError*(lastError: OSErrorCode): bool =
     )
 
 when defined(linux):
-  proc readIOBuf*(socket: AsyncFD, buf: ptr IOBuf, maxSize: int): owned(Future[int]) =
+  proc readIntoIOBuf*(
+      socket: AsyncFD, buf: ptr IOBuf, maxSize: int
+  ): owned(Future[int]) =
     var retFuture = newFuture[int]("readIntoIOBuf")
 
     proc cb(sock: AsyncFD): bool =
       result = true
-      let res = readIOBuf(cint(sock), buf[], maxSize)
+      let res = readIntoIOBuf(cint(sock), buf[], maxSize)
       if res < 0:
         let lastError = osLastError()
         if lastError.int32 != EINTR and lastError.int32 != EWOULDBLOCK and
@@ -42,14 +43,17 @@ when defined(linux):
     addRead(socket, cb)
     return retFuture
 
-  proc writeIOBuf*(socket: AsyncFD, buf: ptr IOBuf, size: int): owned(Future[void]) =
+  proc writeIOBuf*(socket: AsyncFD, buf: ptr IOBuf, maxSize: int): owned(Future[void]) =
+    assert maxSize > 0
+    assert maxSize <= buf[].len
+
     var retFuture = newFuture[void]("writeIOBuf")
 
     var written = 0
 
     proc cb(sock: AsyncFD): bool =
       result = true
-      let netSize = size - written
+      let netSize = maxSize - written
       let res = writeIOBuf(cint(sock), buf[], netSize)
       if res < 0:
         let lastError = osLastError()

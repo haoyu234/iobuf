@@ -24,9 +24,8 @@ template benchLoop(op, maxSize) =
 
   assert num == maxSize
 
-proc readBenchBuf() =
+proc readIntoIOBuf() =
   var buf: IOBuf
-  buf.initBuf()
 
   let file = open("/dev/zero", FileMode.fmRead)
   let fd = file.getFileHandle
@@ -34,13 +33,12 @@ proc readBenchBuf() =
     file.close()
 
   template body(size): int =
-    readIOBuf(cint(fd), buf, SIZE - size)
+    readIntoIOBuf(cint(fd), buf, SIZE - size)
 
   benchLoop(body, SIZE)
 
-proc writeBenchIOBuf(data: openArray[byte]) =
+proc writeIOBuf() =
   var buf: IOBuf
-  buf.initBuf()
 
   template appendZeroCopy(size): int =
     let offset = size mod data.len
@@ -61,7 +59,7 @@ proc writeBenchIOBuf(data: openArray[byte]) =
 
   benchLoop(body, SIZE)
 
-proc readBenchSeq() =
+proc readIntoStackBuf() =
   var data = newSeq[byte]()
   var buf: array[DEFAULT_CHUNK_SIZE, byte]
 
@@ -76,7 +74,7 @@ proc readBenchSeq() =
 
   benchLoop(body, SIZE)
 
-proc writeBenchSeq(data: openArray[byte]) =
+proc writeLoop() =
   let file = open("/dev/null", FileMode.fmWrite)
   defer:
     file.close()
@@ -88,7 +86,7 @@ proc writeBenchSeq(data: openArray[byte]) =
 
   benchLoop(body, SIZE)
 
-proc writeBenchSeq2(data: openArray[byte]) =
+proc writeConcatSeq() =
   let file = open("/dev/null", FileMode.fmWrite)
   defer:
     file.close()
@@ -103,42 +101,67 @@ proc writeBenchSeq2(data: openArray[byte]) =
 
   benchLoop(appendZeroCopy, SIZE)
 
+  doAssert buf.len == SIZE
+
   template body(size): int =
     file.writeBuffer(buf[size].addr, SIZE - size)
 
   benchLoop(body, SIZE)
 
 type BenchTp = enum
-  ReadBenchSeq
-  WriteBenchSeq
-  WriteBenchSeq2
-  ReadBenchIOBuf
-  WriteBenchIOBuf
+  Memcpy
+  ReadIntoStackBuf
+  ReadIntoIOBuf
+  WriteN
+  WriteConcatSeq
+  WriteIOBuf
+
+proc memcpyBench() =
+  var buf: array[2000, byte]
+
+  template doCopy(size): int =
+    let offset = size mod data.len
+    let left = min(data.len - offset, SIZE - size)
+    copyMem(buf[0].addr, data[offset].addr, left)
+    left
+
+  benchLoop(doCopy, SIZE)
 
 proc bench(tp: BenchTp, info: string) =
+  GC_fullCollect()
+
   let startTs = getMonoTime().ticks
 
   case tp
-  of ReadBenchSeq:
-    readBenchSeq()
-  of ReadBenchIOBuf:
-    readBenchBuf()
-  of WriteBenchSeq:
-    writeBenchSeq(data)
-  of WriteBenchSeq2:
-    writeBenchSeq2(data)
-  of WriteBenchIOBuf:
-    writeBenchIOBuf(data)
+  of Memcpy:
+    memcpyBench()
+  of ReadIntoStackBuf:
+    readIntoStackBuf()
+  of ReadIntoIOBuf:
+    readIntoIOBuf()
+  of WriteN:
+    writeLoop()
+  of WriteConcatSeq:
+    writeConcatSeq()
+  of WriteIOBuf:
+    writeIOBuf()
 
   let passTs = getMonoTime().ticks - startTs
 
   let mb = float64(SIZE) / 1024 / 1024
   let seconds = float64(passTs) / 1e9
+  var speed = mb / seconds
 
-  echo fmt"{tp} in {seconds:.3f} seconds, {mb / seconds:.2f} MB/s info: {info}"
+  var unitStr = "MB"
+  if speed > 1024:
+    unitStr = "GB"
+    speed = speed / 1024
 
-bench(ReadBenchSeq, "read * N")
-bench(ReadBenchIOBuf, "readv")
-bench(WriteBenchSeq, "write * N")
-bench(WriteBenchSeq2, "appendCopy, write")
-bench(WriteBenchIOBuf, "appendZeroCopy, writev")
+  echo fmt"{tp} in {seconds:.3f} seconds, {speed:.2f} {unitStr}/s info: {info}"
+
+bench(Memcpy, "memcpy in N call")
+bench(ReadIntoStackBuf, "read in N call")
+bench(ReadIntoIOBuf, "readv")
+bench(WriteN, "write in N call")
+bench(WriteConcatSeq, "concat into seq, write in 1 call")
+bench(WriteIOBuf, "appendZeroCopy, writev")

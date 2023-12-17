@@ -1,5 +1,4 @@
 import std/math
-import system/ansi_c
 
 const INLINE_STORAGE_CAPACITY = 4
 const DEFAULT_STORAGE_CAPACITY = 32
@@ -9,11 +8,18 @@ type Deque*[T] = object
   storage: ptr UncheckedArray[T]
   inlineStorage: array[INLINE_STORAGE_CAPACITY, T]
 
-proc allocStorage[T](capacity: int): ptr UncheckedArray[T] {.inline.} =
-  cast[ptr UncheckedArray[T]](c_calloc(csize_t(sizeof(T)), csize_t(capacity)))
+proc allocStorage[T](size: int): ptr UncheckedArray[T] {.inline.} =
+  cast[ptr UncheckedArray[T]](allocShared0(sizeof(T) * size))
+
+proc reallocStorage[T](
+    p: ptr UncheckedArray[T], oldSize, newSize: int
+): ptr UncheckedArray[T] {.inline.} =
+  cast[ptr UncheckedArray[T]](reallocShared0(
+    p, sizeof(T) * oldSize, sizeof(T) * newSize
+  ))
 
 proc freeStorage(storage: pointer) {.inline.} =
-  c_free(storage)
+  deallocShared(storage)
 
 template initImpl[T](result: var Deque[T], initSize: int) =
   if initSize > INLINE_STORAGE_CAPACITY:
@@ -23,7 +29,7 @@ template initImpl[T](result: var Deque[T], initSize: int) =
       else:
         DEFAULT_STORAGE_CAPACITY
 
-    result.mask = int16(cap) - 1
+    result.mask = typeof(result.mask)(cap - 1)
     result.storage = allocStorage[T](cap)
   else:
     result.mask = 1
@@ -156,23 +162,27 @@ iterator pairs*[T](deq: Deque[T]): tuple[key: int, val: T] =
 
 proc expandIfNeeded[T](deq: var Deque[T]) =
   checkIfInitialized(deq)
+
   let cap = deq.mask + 1
   if unlikely(deq.len >= cap):
     let newCap = max(cap * 2, DEFAULT_STORAGE_CAPACITY)
 
-    var n = allocStorage[T](newCap)
-    var i = 0
-    for x in mitems(deq):
-      when nimvm:
-        n[i] = x
-        # workaround for VM bug
-      else:
-        n[i] = move(x)
-      inc i
+    let inlineStorage = cast[ptr UncheckedArray[T]](deq.inlineStorage[0].addr)
+    if deq.storage != inlineStorage:
+      deq.storage = reallocStorage(deq.storage, cap, newCap)
+    else:
+      var n = allocStorage[T](newCap)
+      var i = 0
+      for x in mitems(deq):
+        when nimvm:
+          n[i] = x
+          # workaround for VM bug
+        else:
+          n[i] = move(x)
+        inc i
 
-    checkAndFreeStorage(deq)
+      deq.storage = n
 
-    deq.storage = n
     deq.mask = newCap - 1
     deq.tail = deq.len
     deq.head = 0

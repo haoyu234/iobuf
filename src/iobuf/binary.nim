@@ -1,18 +1,16 @@
-import intern/iobuf
+import ./iobuf
 
-import iobuf
+import ./intern/iobuf
 
 template readImpl[T](s: var IOBuf, result: var T) =
   assert s.len >= sizeof(T)
 
-  if s.readCopy(result.addr, sizeof(T)) != sizeof(T):
-    assert false
+  s.readCopyInto(result.addr, sizeof(T))
 
 template peekImpl[T](s: IOBuf, result: var T) =
   assert s.len >= sizeof(T)
 
-  if s.peekCopy(result.addr, sizeof(T)) != sizeof(T):
-    assert false
+  s.peekCopyInto(result.addr, sizeof(T))
 
 template writeImpl[T](s: var IOBuf, data: T) =
   s.writeCopy(data.addr, sizeof(T))

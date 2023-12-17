@@ -1,5 +1,3 @@
-import instru/queue
-
 const DEFAULT_CHUNK_SIZE* = 8192
 const DEFAULT_LARGE_CHUNK_SIZE* = DEFAULT_CHUNK_SIZE * 4
 
@@ -8,7 +6,7 @@ type
     len: int
     capacity: int
     storage: pointer
-    queueNode: InstruQueueNode
+    nextChunk: Chunk
 
   Chunk* = ref ChunkObj
   ChunkObj2 = object of ChunkObj
@@ -23,33 +21,31 @@ proc `=destroy`(chunk: ChunkObj2) =
   if not storage.isNil:
     deallocShared(storage)
 
-template initChunk*(result: Chunk, storage2: pointer, len2, capacity2: int) =
-  result.len = len2
-  result.capacity = capacity2
-  result.storage = storage2
-  result.queueNode.initEmpty()
+proc newChunk*(storage: pointer, len, capacity: int): owned Chunk {.inline.} =
+  var chunk = new(Chunk)
 
-proc newChunk*(storage2: pointer, len2, capacity2: int): Chunk {.inline.} =
-  new (result)
-  result.initChunk(storage2, len2, capacity2)
-
-proc newChunk*(capacity: int): Chunk {.inline.} =
-  var chunk = new(Chunk2)
-
-  let p = allocShared(capacity)
-  Chunk(chunk).initChunk(p, 0, capacity)
+  chunk.len = len
+  chunk.capacity = capacity
+  chunk.storage = storage
 
   chunk
 
-proc newChunk*(data: sink seq[byte]): Chunk {.inline.} =
+proc newChunk*(capacity: int): owned Chunk {.inline.} =
+  var chunk = new(Chunk2)
+
+  chunk.len = 0
+  chunk.capacity = capacity
+  chunk.storage = allocShared(capacity)
+
+  chunk
+
+proc newChunk*(data: sink seq[byte]): owned Chunk {.inline.} =
   var chunk = new(Chunk3)
 
-  let len = data.len
-
+  chunk.len = data.len
+  chunk.capacity = data.len
   chunk.data = move data
-
-  let p = chunk.data[0].addr
-  Chunk(chunk).initChunk(p, len, len)
+  chunk.storage = chunk.data[0].addr
 
   chunk
 
@@ -82,25 +78,15 @@ template advanceWpos*(chunk: Chunk, dataLen: int) =
 template capacity*(chunk: Chunk): int =
   chunk.capacity
 
-proc dequeueChunk*(queuedChunk: var InstruQueue): Chunk {.inline.} =
-  if not queuedChunk.isEmpty:
-    let node = queuedChunk.popFront
-    result = cast[Chunk](data(node[], ChunkObj, queueNode))
-    GC_unref(result)
+template enqueue*(chunk: var Chunk, next: Chunk) =
+  next.nextChunk = chunk
+  chunk = next
 
-proc dequeueChunkUnsafe*(queuedChunk: var InstruQueue): Chunk {.inline.} =
-  let node = queuedChunk.popFront
-  result = cast[Chunk](data(node[], ChunkObj, queueNode))
-  GC_unref(result)
-
-proc enqueueChunk*(queuedChunk: var InstruQueue, chunk: sink Chunk) {.inline.} =
-  if not chunk.queueNode.isQueued:
-    GC_ref(chunk)
-    queuedChunk.insertFront(chunk.queueNode)
-
-proc enqueueChunkUnsafe*(queuedChunk: var InstruQueue, chunk: sink Chunk) {.inline.} =
-  GC_ref(chunk)
-  queuedChunk.insertFront(chunk.queueNode)
+template dequeue*(chunk: var Chunk): Chunk =
+  var result = move chunk
+  if not result.isNil:
+    chunk = result.nextChunk
+  result
 
 template toOpenArray*(chunk: Chunk): openArray[byte] =
   cast[ptr UncheckedArray[byte]](chunk.storage).toOpenArray(0, chunk.len - 1)

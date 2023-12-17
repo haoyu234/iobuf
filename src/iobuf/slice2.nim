@@ -1,4 +1,4 @@
-import intern/indices
+import ./intern/indices
 
 type Slice2*[T] = object
   len: int
@@ -28,6 +28,7 @@ proc slice*[T](d: ptr UncheckedArray[T], len: int): Slice2[T] {.inline.} =
   slice(T, d, len)
 
 proc slice*[T](d: openArray[T], offset, len: int): Slice2[T] {.inline.} =
+  assert offset + len <= d.len
   slice(T, d[offset].addr, len)
 
 proc slice*[T](d: openArray[T], len: int): Slice2[T] {.inline.} =

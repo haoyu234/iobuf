@@ -1,5 +1,5 @@
-import chunk
-import indices
+import ./chunk
+import ./indices
 
 type Region* = object
   offset: uint32

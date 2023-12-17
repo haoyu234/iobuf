@@ -1,13 +1,10 @@
-import intern/chunk
-import intern/region
-import intern/iobuf
+import ./slice2
 
-import slice2
+import ./intern/chunk
+import ./intern/region
+import ./intern/iobuf
 
 type IOBuf* = distinct InternalIOBuf
-
-proc initBuf*(buf: var IOBuf) {.inline.} =
-  InternalIOBuf(buf).initBuf
 
 proc len*(buf: IOBuf): int {.inline.} =
   InternalIOBuf(buf).len
@@ -57,66 +54,57 @@ proc writeZeroCopy*(buf: var IOBuf, data: IOBuf, size: int) {.inline.} =
   for region in InternalIOBuf(buf).visitLeftRegion(minSize):
     InternalIOBuf(buf).enqueueRightZeroCopy(region)
 
-proc consumedLeft*(buf: var IOBuf, size: int) {.inline.} =
-  if buf.len <= 0 or size <= 0:
-    return
-
+proc consumeLeft*(buf: var IOBuf, size: int) {.inline.} =
   InternalIOBuf(buf).dequeueLeft(size)
 
-proc consumedRight*(buf: var IOBuf, size: int) {.inline.} =
-  if buf.len <= 0 or size <= 0:
-    return
-
+proc consumeRight*(buf: var IOBuf, size: int) {.inline.} =
   InternalIOBuf(buf).dequeueRight(size)
 
-proc peekCopy*(buf: IOBuf, data: pointer, size: int): int {.inline.} =
-  if size <= 0 or buf.len <= 0:
-    return
+proc peekCopyInto*(buf: IOBuf, data: pointer, size: int) {.inline.} =
+  var offset = uint(0)
 
   for region in InternalIOBuf(buf).visitLeftRegion(size):
-    let dstAddr = cast[uint](data) + uint(result)
-    inc result, region.len
+    let dstAddr = cast[uint](data) + offset
+    inc offset, region.len
 
     copyMem(cast[pointer](dstAddr), region.leftAddr, region.len)
 
-proc peekCopy*(buf: IOBuf, data: var seq[byte], size: int): int {.inline.} =
-  if size <= 0 or buf.len <= 0:
-    return
+proc peekCopyInto*(buf: IOBuf, data: var seq[byte], size: int) {.inline.} =
+  assert size > 0
+  assert size <= buf.len
 
   for region in InternalIOBuf(buf).visitLeftRegion(size):
     data.add(region.toOpenArray)
-    inc result, region.len
 
-proc peekZeroCopy*(buf: IOBuf, into: var IOBuf, size: int): int {.inline.} =
-  if size <= 0 or buf.len <= 0:
-    return
+proc peekZeroCopyInto*(buf: IOBuf, into: var IOBuf, size: int) {.inline.} =
+  assert size > 0
+  assert size <= buf.len
 
   for region in InternalIOBuf(buf).visitLeftRegion(size):
     InternalIOBuf(into).enqueueRightZeroCopy(region)
-    inc result, region.len
 
-proc readCopy*(buf: var IOBuf, data: pointer, size: int): int {.inline.} =
-  if size <= 0 or buf.len <= 0:
-    return
+proc readCopyInto*(buf: var IOBuf, data: pointer, size: int) {.inline.} =
+  assert size > 0
+  assert size <= buf.len
+
+  var offset = uint(0)
 
   for region in InternalIOBuf(buf).visitLeftRegionAndDequeue(size):
-    let dstAddr = cast[uint](data) + uint(result)
-    inc result, region.len
+    let dstAddr = cast[uint](data) + offset
+    inc offset, region.len
 
     copyMem(cast[pointer](dstAddr), region.leftAddr, region.len)
 
-proc readCopy*(buf: var IOBuf, data: var seq[byte], size: int): int {.inline.} =
-  if size <= 0 or buf.len <= 0:
-    return
+proc readCopyInto*(buf: var IOBuf, data: var seq[byte], size: int) {.inline.} =
+  assert size > 0
+  assert size <= buf.len
 
   for region in InternalIOBuf(buf).visitLeftRegionAndDequeue(size):
     data.add(region.toOpenArray)
-    inc result, region.len
 
-proc readZeroCopy*(buf, into: var IOBuf, size: int): int {.inline.} =
-  if size <= 0 or buf.len <= 0:
-    return
+proc readZeroCopyInto*(buf, into: var IOBuf, size: int) {.inline.} =
+  assert size > 0
+  assert size <= buf.len
 
   for region in InternalIOBuf(buf).visitLeftRegionAndDequeue(size):
     InternalIOBuf(into).enqueueRightZeroCopy(region)
-    inc result, region.len

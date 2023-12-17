@@ -1,7 +1,7 @@
 import std/streams
 
-import iobuf
-import binary
+import ./iobuf
+import ./binary
 
 type IOBufStream* = ref object of StreamObj
   buf: ptr IOBuf
@@ -21,36 +21,35 @@ proc readDataStrImpl(s: Stream, buffer: var string, slice: Slice[int]): int =
     prepareMutation(buffer) # buffer might potentially be a CoW literal with ARC
 
   result = min(slice.b + 1 - slice.a, stream.buf[].len)
+  result = min(result, stream.buf[].len)
   if result > 0:
-    result = stream.buf[].readCopy(buffer[slice.a].addr, result)
-  else:
-    result = 0
+    stream.buf[].readCopyInto(buffer[slice.a].addr, result)
 
 proc readDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
-  if bufLen <= 0:
+  var stream = IOBufStream(s)
+  result = min(bufLen, stream.buf[].len)
+
+  if result <= 0:
     return
 
-  var stream = IOBufStream(s)
-
-  if bufLen == 1:
-    result = bufLen
+  if result == 1:
     cast[ptr byte](buffer)[] = byte(stream.buf[].readUint8)
     return
 
-  result = stream.buf[].readCopy(buffer, bufLen)
+  stream.buf[].readCopyInto(buffer, result)
 
 proc peekDataImpl(s: Stream, buffer: pointer, bufLen: int): int =
-  if bufLen <= 0:
+  var stream = IOBufStream(s)
+  result = min(bufLen, stream.buf[].len)
+
+  if result <= 0:
     return
 
-  var stream = IOBufStream(s)
-
-  if bufLen == 1:
-    result = bufLen
+  if result == 1:
     cast[ptr byte](buffer)[] = byte(stream.buf[].peekUint8)
     return
 
-  result = stream.buf[].peekCopy(buffer, bufLen)
+  stream.buf[].peekCopyInto(buffer, result)
 
 proc writeDataImpl(s: Stream, buffer: pointer, bufLen: int) =
   if bufLen <= 0:

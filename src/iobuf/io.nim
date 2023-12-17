@@ -1,17 +1,26 @@
-import iobuf
-import slice2
+import ./iobuf
+import ./slice2
 
-import intern/tls
-import intern/chunk
-import intern/region
-import intern/iobuf
+import ./intern/chunk
+import ./intern/region
+import ./intern/iobuf
 
 const MAX_IOVEC_NUM = 64
+
+proc releaseManyChunk(
+    buf: var InternalIOBuf, vecChunk: var openArray[Chunk]
+) {.inline.} =
+  var idx = vecChunk.len
+  while idx > 0:
+    dec idx
+    buf.releaseChunk(move vecChunk[idx])
 
 when defined(linux):
   import std/posix
 
-  proc readIOBuf*(fd: cint, buf: var IOBuf, maxSize: int): int =
+  proc readIntoIOBuf*(fd: cint, buf: var IOBuf, maxSize: int): int =
+    assert maxSize > 0
+
     var num = 0
     var size = 0
 
@@ -37,27 +46,25 @@ when defined(linux):
     else:
       result = readv(cint(fd), vecBuf[0].addr, cint(num))
 
-    if result <= 0:
+    if result > 0:
+      size = result
+
       for idx in 0 ..< num:
-        releaseTlsChunk(vecChunk[idx])
-      return
+        if size > 0:
+          let len = min(int(vecBuf[idx].iov_len), size)
+          dec size, len
 
-    size = result
+          let oldLen = vecChunk[idx].len
+          vecChunk[idx].advanceWpos(len)
 
-    for idx in 0 ..< num:
-      if size > 0:
-        let len = min(int(vecBuf[idx].iov_len), size)
-        dec size, len
+          var region = initRegion(vecChunk[idx], oldLen, len)
+          InternalIOBuf(buf).enqueueRightZeroCopy(move region)
 
-        let oldLen = vecChunk[idx].len
-        vecChunk[idx].advanceWpos(len)
-
-        var region = initRegion(vecChunk[idx], oldLen, len)
-        InternalIOBuf(buf).enqueueRightZeroCopy(move region)
-
-      InternalIOBuf(buf).releaseChunk(move vecChunk[idx])
+    releaseManyChunk(InternalIOBuf(buf), vecChunk.toOpenArray(0, num - 1))
 
   proc writeIOBuf*(fd: cint, buf: var IOBuf, maxSize: int): int =
+    assert maxSize > 0
+
     var num = 0
     var size = 0
 
