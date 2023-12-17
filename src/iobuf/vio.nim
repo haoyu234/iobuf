@@ -19,7 +19,7 @@ when defined(linux):
     var vecBuf: array[MAX_IOVEC_NUM, IOVec]
     var vecChunk: array[MAX_IOVEC_NUM, Chunk]
 
-    for chunk in InternIOBuf(buf).allocChunk(maxSize):
+    for chunk in InternalIOBuf(buf).allocChunk(maxSize):
       let left = maxSize - size
 
       let len = min(chunk.leftSpace(), left)
@@ -54,9 +54,9 @@ when defined(linux):
         vecChunk[idx].extendLen(len)
 
         var region = initRegion(vecChunk[idx], oldLen, len)
-        InternIOBuf(buf).enqueueRightZeroCopy(move region)
+        InternalIOBuf(buf).enqueueRightZeroCopy(move region)
 
-      InternIOBuf(buf).releaseChunk(move vecChunk[idx])
+      InternalIOBuf(buf).releaseChunk(move vecChunk[idx])
 
   proc writev*(fd: cint, buf: var IOBuf, maxSize: int): int =
     var num = 0
@@ -93,10 +93,10 @@ when defined(linux):
       let dataLen = int(vecBuf[idx].iov_len)
 
       if size < dataLen:
-        InternIOBuf(buf).dequeueLeftAdjust(idx, size, result)
+        InternalIOBuf(buf).dequeueLeftAdjust(idx, size, result)
         break
       elif size == dataLen:
-        InternIOBuf(buf).dequeueLeftAdjust(idx + 1, 0, result)
+        InternalIOBuf(buf).dequeueLeftAdjust(idx + 1, 0, result)
         break
 
       dec size, dataLen

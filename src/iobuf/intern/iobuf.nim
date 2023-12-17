@@ -14,7 +14,7 @@ else:
   import deque
 
 type
-  InternIOBuf* = object
+  InternalIOBuf* = object
     len: int
     lastChunk: Chunk
     regionQueue: Deque[Region]
@@ -24,30 +24,30 @@ type
     left: int
     right: int
 
-  InternPos = object
+  InternalPos = object
     idx: int
     offset: int
 
-template len*(buf: InternIOBuf): int = buf.len
-template queueSize*(buf: InternIOBuf): int = buf.regionQueue.len
+template len*(buf: InternalIOBuf): int = buf.len
+template queueSize*(buf: InternalIOBuf): int = buf.regionQueue.len
 
-template clear*(buf: var InternIOBuf) =
+template clear*(buf: var InternalIOBuf) =
   if buf.len > 0:
     buf.len = 0
     buf.regionQueue.clear
 
-iterator items*(buf: InternIOBuf): lent Region =
+iterator items*(buf: InternalIOBuf): lent Region =
   for region in buf.regionQueue:
     yield region
 
-proc initBuf*(result: var InternIOBuf) {.inline.} =
+proc initBuf*(result: var InternalIOBuf) {.inline.} =
   result.len = 0
   result.lastChunk = nil
 
   when not USE_STD_DEQUE:
     result.regionQueue.initDeque
 
-proc `=destroy`(buf: var InternIOBuf) {.`fix=destroy(var T)`.} =
+proc `=destroy`(buf: var InternalIOBuf) {.`fix=destroy(var T)`.} =
   var lastChunk = buf.lastChunk
   while lastChunk != nil:
     lastChunk = lastChunk.dequeueChunk()
@@ -55,7 +55,7 @@ proc `=destroy`(buf: var InternIOBuf) {.`fix=destroy(var T)`.} =
   `=destroy`(buf.lastChunk)
   `=destroy`(buf.regionQueue.getAddr[])
 
-proc allocChunk*(buf: var InternIOBuf): Chunk {.inline.} =
+proc allocChunk*(buf: var InternalIOBuf): Chunk {.inline.} =
   while true:
     result = move buf.lastChunk
     if result.isNil:
@@ -65,7 +65,7 @@ proc allocChunk*(buf: var InternIOBuf): Chunk {.inline.} =
     if not result.isFull:
       break
 
-iterator allocChunk*(buf: var InternIOBuf, size: int): owned Chunk =
+iterator allocChunk*(buf: var InternalIOBuf, size: int): owned Chunk =
   var left = size
 
   while left > 0:
@@ -79,7 +79,7 @@ iterator allocChunk*(buf: var InternIOBuf, size: int): owned Chunk =
       dec left, chunk.leftSpace
       yield chunk
 
-proc releaseChunk*(buf: var InternIOBuf, chunk: sink Chunk) {.inline.} =
+proc releaseChunk*(buf: var InternalIOBuf, chunk: sink Chunk) {.inline.} =
   if not chunk.isFull:
     if not buf.lastChunk.isNil:
       buf.lastChunk.enqueueChunk(move chunk)
@@ -87,7 +87,7 @@ proc releaseChunk*(buf: var InternIOBuf, chunk: sink Chunk) {.inline.} =
       buf.lastChunk = move chunk
 
 iterator preprocessingEnqueueSlowCopy(
-  buf: var InternIOBuf, data: pointer, size: int): Region =
+  buf: var InternalIOBuf, data: pointer, size: int): Region =
 
   var offset = 0
   var lastChunk = Chunk(nil)
@@ -113,7 +113,7 @@ iterator preprocessingEnqueueSlowCopy(
 
   buf.releaseChunk(move lastChunk)
 
-proc preprocessingEnqueueOneByte(buf: var InternIOBuf,
+proc preprocessingEnqueueOneByte(buf: var InternalIOBuf,
     data: byte): Region {.inline.} =
   var lastChunk = sharedTlsChunk()
   let len = lastChunk.len
@@ -124,13 +124,13 @@ proc preprocessingEnqueueOneByte(buf: var InternIOBuf,
 
   initRegion(move lastChunk, len, 1)
 
-proc enqueueLeftZeroCopy*(buf: var InternIOBuf, data: InternIOBuf) {.inline.} =
+proc enqueueLeftZeroCopy*(buf: var InternalIOBuf, data: InternalIOBuf) {.inline.} =
   inc buf.len, data.len
 
   for i in countdown(data.queueSize - 1, 0):
     buf.regionQueue.addFirst(data.regionQueue[i])
 
-proc enqueueLeftZeroCopy*(buf: var InternIOBuf,
+proc enqueueLeftZeroCopy*(buf: var InternalIOBuf,
     region: sink Region) {.inline.} =
   inc buf.len, region.len
 
@@ -143,24 +143,24 @@ proc enqueueLeftZeroCopy*(buf: var InternIOBuf,
 
   buf.regionQueue.addFirst(move region)
 
-proc enqueueLeftCopy*(buf: var InternIOBuf, data: pointer,
+proc enqueueLeftCopy*(buf: var InternalIOBuf, data: pointer,
     size: int) {.inline.} =
 
   for region in buf.preprocessingEnqueueSlowCopy(data, size):
     buf.enqueueLeftZeroCopy(region)
 
-proc enqueueByteLeft*(buf: var InternIOBuf, data: byte) {.inline.} =
+proc enqueueByteLeft*(buf: var InternalIOBuf, data: byte) {.inline.} =
   var region = buf.preprocessingEnqueueOneByte(data)
   buf.enqueueLeftZeroCopy(move region)
 
-proc enqueueRightZeroCopy*(buf: var InternIOBuf,
-    data: InternIOBuf) {.inline.} =
+proc enqueueRightZeroCopy*(buf: var InternalIOBuf,
+    data: InternalIOBuf) {.inline.} =
   inc buf.len, data.len
 
   for region in data.regionQueue:
     buf.regionQueue.addLast(region)
 
-proc enqueueRightZeroCopy*(buf: var InternIOBuf,
+proc enqueueRightZeroCopy*(buf: var InternalIOBuf,
     region: sink Region) {.inline.} =
   inc buf.len, region.len
 
@@ -173,17 +173,17 @@ proc enqueueRightZeroCopy*(buf: var InternIOBuf,
 
   buf.regionQueue.addLast(move region)
 
-proc enqueueRightCopy*(buf: var InternIOBuf, data: pointer,
+proc enqueueRightCopy*(buf: var InternalIOBuf, data: pointer,
     size: int) {.inline.} =
 
   for region in buf.preprocessingEnqueueSlowCopy(data, size):
     buf.enqueueRightZeroCopy(region)
 
-proc enqueueByteRight*(buf: var InternIOBuf, data: byte) {.inline.} =
+proc enqueueByteRight*(buf: var InternalIOBuf, data: byte) {.inline.} =
   var region = buf.preprocessingEnqueueOneByte(data)
   buf.enqueueRightZeroCopy(move region)
 
-proc dequeueLeftAdjust*(buf: var InternIOBuf,
+proc dequeueLeftAdjust*(buf: var InternalIOBuf,
   idx, offset, size: int) {.inline.} =
 
   assert size <= buf.len
@@ -196,7 +196,7 @@ proc dequeueLeftAdjust*(buf: var InternIOBuf,
 
   dec buf.len, size
 
-proc dequeueRightAdjust*(buf: var InternIOBuf,
+proc dequeueRightAdjust*(buf: var InternalIOBuf,
   idx, offset, size: int) {.inline.} =
 
   assert size <= buf.len
@@ -209,7 +209,7 @@ proc dequeueRightAdjust*(buf: var InternIOBuf,
 
   dec buf.len, size
 
-proc locate(buf: InternIOBuf,
+proc locate(buf: InternalIOBuf,
   offset: int, reverseSearch: static[bool] = false): LocatePos {.inline.} =
 
   assert offset < buf.len
@@ -240,7 +240,7 @@ proc locate(buf: InternIOBuf,
 
   assert false
 
-proc dequeueLeft*(buf: var InternIOBuf, size: int) {.inline.} =
+proc dequeueLeft*(buf: var InternalIOBuf, size: int) {.inline.} =
   if size >= buf.len:
     buf.clear()
     return
@@ -259,7 +259,7 @@ proc dequeueLeft*(buf: var InternIOBuf, size: int) {.inline.} =
   let locatePos = buf.locate(size)
   buf.dequeueLeftAdjust(locatePos.idx, locatePos.left, size)
 
-proc dequeueRight*(buf: var InternIOBuf, size: int) {.inline.} =
+proc dequeueRight*(buf: var InternalIOBuf, size: int) {.inline.} =
   if size >= buf.len:
     buf.clear()
     return
@@ -278,7 +278,7 @@ proc dequeueRight*(buf: var InternIOBuf, size: int) {.inline.} =
   let locatePos = buf.locate(size, reverseSearch = true)
   buf.dequeueRightAdjust(locatePos.idx, locatePos.right, size)
 
-iterator visitRegion*(buf: InternIOBuf, start, stop: InternPos): Region =
+iterator visitRegion*(buf: InternalIOBuf, start, stop: InternalPos): Region =
   var idx {.inject.} = start.idx
 
   if idx != stop.idx:
@@ -297,7 +297,7 @@ iterator visitRegion*(buf: InternIOBuf, start, stop: InternPos): Region =
   else:
     yield buf.regionQueue[idx][start.offset ..< stop.offset]
 
-template visitLeftRegionImpl(buf: InternIOBuf, size: int, dequeue: static[bool]) =
+template visitLeftRegionImpl(buf: InternalIOBuf, size: int, dequeue: static[bool]) =
   if size >= buf.len:
     for idx in 0 ..< buf.queueSize:
       yield buf.regionQueue[idx]
@@ -307,8 +307,8 @@ template visitLeftRegionImpl(buf: InternIOBuf, size: int, dequeue: static[bool])
 
   else:
     let locatePos = buf.locate(size)
-    let leftPos = InternPos(idx: 0, offset: 0)
-    let rightPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
+    let leftPos = InternalPos(idx: 0, offset: 0)
+    let rightPos = InternalPos(idx: locatePos.idx, offset: locatePos.left)
 
     for region in buf.visitRegion(leftPos, rightPos):
       yield region
@@ -316,13 +316,13 @@ template visitLeftRegionImpl(buf: InternIOBuf, size: int, dequeue: static[bool])
     when dequeue:
       buf.dequeueLeftAdjust(locatePos.idx, locatePos.left, size)
 
-iterator visitLeftRegion*(buf: InternIOBuf, size: int): Region =
+iterator visitLeftRegion*(buf: InternalIOBuf, size: int): Region =
   buf.visitLeftRegionImpl(size, false)
 
-iterator visitLeftRegionAndDequeue*(buf: var InternIOBuf, size: int): Region =
+iterator visitLeftRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
   buf.visitLeftRegionImpl(size, true)
 
-template visitRightRegionImpl(buf: InternIOBuf, size: int, dequeue: static[bool]) =
+template visitRightRegionImpl(buf: InternalIOBuf, size: int, dequeue: static[bool]) =
   if size >= buf.len:
     for idx in 0 ..< buf.queueSize:
       yield buf.regionQueue[idx]
@@ -332,8 +332,8 @@ template visitRightRegionImpl(buf: InternIOBuf, size: int, dequeue: static[bool]
 
   else:
     let locatePos = buf.locate(size, reverseSearch = true)
-    let leftPos = InternPos(idx: locatePos.idx, offset: locatePos.left)
-    let rightPos = InternPos(idx: buf.queueSize - 1, offset: buf.regionQueue[^1].len)
+    let leftPos = InternalPos(idx: locatePos.idx, offset: locatePos.left)
+    let rightPos = InternalPos(idx: buf.queueSize - 1, offset: buf.regionQueue[^1].len)
 
     for region in buf.visitRegion(leftPos, rightPos):
       yield region
@@ -341,8 +341,8 @@ template visitRightRegionImpl(buf: InternIOBuf, size: int, dequeue: static[bool]
     when dequeue:
       buf.dequeueRightAdjust(locatePos.idx, locatePos.right, size)
 
-iterator visitRightRegion*(buf: InternIOBuf, size: int): Region =
+iterator visitRightRegion*(buf: InternalIOBuf, size: int): Region =
   buf.visitRightRegionImpl(size, false)
 
-iterator visitRightRegionAndDequeue*(buf: var InternIOBuf, size: int): Region =
+iterator visitRightRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
   buf.visitRightRegionImpl(size, true)
