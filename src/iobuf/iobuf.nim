@@ -22,6 +22,9 @@ iterator items*(buf: IOBuf): Slice2[byte] {.inline.} =
   for region in InternalIOBuf(buf):
     yield region.toOpenArray().slice()
 
+proc skip*(buf: var IOBuf, size: int) {.inline.} =
+  InternalIOBuf(buf).dequeueLeft(size)
+
 proc writeCopy*(buf: var IOBuf, data: pointer, len: int) {.inline.} =
   InternalIOBuf(buf).enqueueRightCopy(data, len)
 
@@ -54,16 +57,10 @@ proc writeZeroCopy*(buf: var IOBuf, data: IOBuf, size: int) {.inline.} =
   for region in InternalIOBuf(buf).visitLeftRegion(minSize):
     InternalIOBuf(buf).enqueueRightZeroCopy(region)
 
-proc consumeLeft*(buf: var IOBuf, size: int) {.inline.} =
-  InternalIOBuf(buf).dequeueLeft(size)
-
-proc consumeRight*(buf: var IOBuf, size: int) {.inline.} =
-  InternalIOBuf(buf).dequeueRight(size)
-
 proc peekCopyInto*(buf: IOBuf, data: pointer, size: int) {.inline.} =
   var offset = uint(0)
 
-  for region in InternalIOBuf(buf).visitLeftRegion(size):
+  for region in InternalIOBuf(buf).visitLeft(size):
     let dstAddr = cast[uint](data) + offset
     inc offset, region.len
 
@@ -73,7 +70,7 @@ proc peekCopyInto*(buf: IOBuf, data: var seq[byte], size: int) {.inline.} =
   assert size > 0
   assert size <= buf.len
 
-  for region in InternalIOBuf(buf).visitLeftRegion(size):
+  for region in InternalIOBuf(buf).visitLeft(size):
     data.add(region.toOpenArray)
 
 proc peekZeroCopyInto*(buf: IOBuf, into: var IOBuf, size: int) {.inline.} =
@@ -89,7 +86,7 @@ proc readCopyInto*(buf: var IOBuf, data: pointer, size: int) {.inline.} =
 
   var offset = uint(0)
 
-  for region in InternalIOBuf(buf).visitLeftRegionAndDequeue(size):
+  for region in InternalIOBuf(buf).visitLeftAndDequeue(size):
     let dstAddr = cast[uint](data) + offset
     inc offset, region.len
 
@@ -99,7 +96,7 @@ proc readCopyInto*(buf: var IOBuf, data: var seq[byte], size: int) {.inline.} =
   assert size > 0
   assert size <= buf.len
 
-  for region in InternalIOBuf(buf).visitLeftRegionAndDequeue(size):
+  for region in InternalIOBuf(buf).visitLeftAndDequeue(size):
     data.add(region.toOpenArray)
 
 proc readZeroCopyInto*(buf, into: var IOBuf, size: int) {.inline.} =

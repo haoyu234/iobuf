@@ -1,21 +1,12 @@
 import ./chunk
 import ./region
 import ./deque
+import ../slice2
 
-type
-  InternalIOBuf* = object
-    len: int
-    lastChunk: Chunk
-    queuedRegion: Deque[Region]
-
-  LocatePos = object
-    idx: int
-    left: int
-    right: int
-
-  InternalPos = object
-    idx: int
-    offset: int
+type InternalIOBuf* = object
+  len: int
+  lastChunk: Chunk
+  queuedRegion: Deque[Region]
 
 template len*(buf: InternalIOBuf): int =
   buf.len
@@ -164,60 +155,7 @@ proc enqueueByteRight*(buf: var InternalIOBuf, data: byte) {.inline.} =
   var region = buf.preprocessingEnqueueOneByte(data)
   buf.enqueueRightZeroCopy(move region)
 
-proc dequeueLeftAdjust*(buf: var InternalIOBuf, idx, offset, size: int) {.inline.} =
-  assert size <= buf.len
-
-  if offset > 0:
-    buf.queuedRegion[idx].discardLeft(offset)
-
-  for idx2 in 0 ..< idx:
-    discard buf.queuedRegion.popFirst()
-
-  dec buf.len, size
-
-proc dequeueRightAdjust*(buf: var InternalIOBuf, idx, offset, size: int) {.inline.} =
-  assert size <= buf.len
-
-  if offset > 0:
-    buf.queuedRegion[idx].discardRight(offset)
-
-  for idx2 in (idx + 1) ..< buf.queueSize:
-    discard buf.queuedRegion.popLast()
-
-  dec buf.len, size
-
-proc locate(
-    buf: InternalIOBuf, offset: int, reverseSearch: static[bool] = false
-): LocatePos {.inline.} =
-  assert offset < buf.len
-
-  var searchPos = offset
-  let upperBound = buf.queueSize - 1
-
-  for idx in 0 .. upperBound:
-    when reverseSearch:
-      let newIdx = upperBound - idx
-    else:
-      let newIdx = idx
-
-    let dataLen = buf.queuedRegion[newIdx].len
-
-    if searchPos < dataLen:
-      when reverseSearch:
-        result.idx = newIdx
-        result.left = dataLen - searchPos
-        result.right = searchPos
-      else:
-        result.idx = newIdx
-        result.left = searchPos
-        result.right = dataLen - searchPos
-      return
-
-    dec searchPos, dataLen
-
-  assert false
-
-proc dequeueLeft*(buf: var InternalIOBuf, size: int) {.inline.} =
+proc dequeueLeft*(buf: var InternalIOBuf, size: int) =
   assert size > 0
   assert size <= buf.len
 
@@ -225,21 +163,22 @@ proc dequeueLeft*(buf: var InternalIOBuf, size: int) {.inline.} =
     buf.clear()
     return
 
-  if size == 1:
-    dec buf.len, 1
+  var searchPos = size
 
+  for idx in 0 ..< buf.queueSize:
     let region = buf.queuedRegion[0].addr
-    if region[].len > 1:
-      region[].discardLeft(1)
-      return
 
+    if searchPos < region[].len:
+      if searchPos > 0:
+        region[].discardLeft(searchPos)
+      break
+
+    dec searchPos, region[].len
     discard buf.queuedRegion.popFirst()
-    return
 
-  let locatePos = buf.locate(size)
-  buf.dequeueLeftAdjust(locatePos.idx, locatePos.left, size)
+  dec buf.len, size
 
-proc dequeueRight*(buf: var InternalIOBuf, size: int) {.inline.} =
+proc dequeueRight*(buf: var InternalIOBuf, size: int) =
   assert size > 0
   assert size <= buf.len
 
@@ -247,103 +186,117 @@ proc dequeueRight*(buf: var InternalIOBuf, size: int) {.inline.} =
     buf.clear()
     return
 
-  if size == 1:
-    dec buf.len, 1
+  var searchPos = size
 
+  for idx in 0 ..< buf.queueSize:
     let region = buf.queuedRegion[^1].addr
-    if region[].len > 1:
-      region[].discardRight(1)
-      return
 
+    if searchPos < region[].len:
+      if searchPos > 0:
+        region[].discardRight(searchPos)
+      break
+
+    dec searchPos, region[].len
     discard buf.queuedRegion.popLast()
-    return
 
-  let locatePos = buf.locate(size, reverseSearch = true)
-  buf.dequeueRightAdjust(locatePos.idx, locatePos.right, size)
+  dec buf.len, size
 
-iterator visitRegion*(buf: InternalIOBuf, start, stop: InternalPos): Region =
-  var idx {.inject.} = start.idx
-
-  if idx != stop.idx:
-    if start.offset > 0:
-      yield buf.queuedRegion[idx][start.offset .. ^1]
-
-      inc idx
-
-    while idx < stop.idx:
-      yield buf.queuedRegion[idx]
-
-      inc idx
-
-    if stop.offset > 0:
-      yield buf.queuedRegion[idx][0 ..< stop.offset]
-  else:
-    yield buf.queuedRegion[idx][start.offset ..< stop.offset]
-
-template visitLeftRegionImpl(
-    buf: InternalIOBuf, size: int, dequeue: static[bool] = false
-) =
+iterator visitLeft*(buf: InternalIOBuf, size: int): Slice2[byte] =
   assert size > 0
   assert size <= buf.len
 
   if size >= buf.len:
     for idx in 0 ..< buf.queueSize:
-      yield buf.queuedRegion[idx]
-
-    when dequeue:
-      buf.clear()
+      yield buf.queuedRegion[idx].toOpenArray.slice
   else:
-    let locatePos = buf.locate(size)
-    let leftPos = InternalPos(idx: 0, offset: 0)
-    let rightPos = InternalPos(idx: locatePos.idx, offset: locatePos.left)
+    var searchPos = size
 
-    for region in buf.visitRegion(leftPos, rightPos):
-      yield region
+    for idx in 0 ..< buf.queueSize:
+      let region = buf.queuedRegion[idx].addr
 
-    when dequeue:
-      buf.dequeueLeftAdjust(locatePos.idx, locatePos.left, size)
+      if searchPos < region[].len:
+        if searchPos > 0:
+          yield region[].toOpenArray.slice(0, searchPos)
+        break
+
+      dec searchPos, region[].len
+
+      yield region[].toOpenArray.slice
+
+iterator visitLeftAndDequeue*(buf: var InternalIOBuf, size: int): Slice2[byte] =
+  assert size > 0
+  assert size <= buf.len
+
+  if size >= buf.len:
+    while buf.queueSize > 0:
+      let region = buf.queuedRegion.popFirst()
+      dec buf.len, region.len
+      yield region.toOpenArray.slice
+  else:
+    var searchPos = size
+
+    for idx in 0 ..< buf.queueSize:
+      let len = buf.queuedRegion[0].len
+
+      if searchPos < len:
+        if searchPos > 0:
+          dec buf.len, searchPos
+          var r = buf.queuedRegion[0].toOpenArray.slice(0, searchPos)
+          buf.queuedRegion[0].discardLeft(searchPos)
+          yield r
+        break
+
+      dec buf.len, len
+      dec searchPos, len
+
+      let region = buf.queuedRegion.popFirst()
+      yield region.toOpenArray.slice
 
 iterator visitLeftRegion*(buf: InternalIOBuf, size: int): Region =
-  buf.visitLeftRegionImpl(size)
-
-iterator visitLeftRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
-  buf.visitLeftRegionImpl(size, dequeue = true)
-
-template visitRightRegionImpl(
-    buf: InternalIOBuf, size: int, dequeue: static[bool] = false
-) =
   assert size > 0
   assert size <= buf.len
 
   if size >= buf.len:
     for idx in 0 ..< buf.queueSize:
       yield buf.queuedRegion[idx]
-
-    when dequeue:
-      buf.clear()
   else:
-    let locatePos = buf.locate(size, reverseSearch = true)
-    let leftPos = InternalPos(idx: locatePos.idx, offset: locatePos.left)
-    let rightPos = InternalPos(idx: buf.queueSize - 1, offset: buf.queuedRegion[^1].len)
+    var searchPos = size
 
-    for region in buf.visitRegion(leftPos, rightPos):
-      yield region
+    for idx in 0 ..< buf.queueSize:
+      let region = buf.queuedRegion[idx].addr
 
-    when dequeue:
-      buf.dequeueRightAdjust(locatePos.idx, locatePos.right, size)
+      if searchPos < region[].len:
+        if searchPos > 0:
+          yield region[][0 ..< searchPos]
+        break
 
-iterator visitRightRegion*(buf: InternalIOBuf, size: int): Region =
-  buf.visitRightRegionImpl(size)
+      dec searchPos, region[].len
 
-iterator visitRightRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
-  buf.visitRightRegionImpl(size, dequeue = true)
+      yield region[]
 
-proc debugDump*(buf: InternalIOBuf) =
-  if buf.len <= 0:
-    return
+iterator visitLeftRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
+  assert size > 0
+  assert size <= buf.len
 
-  let leftPos = InternalPos(idx: 0, offset: 0)
-  let rightPos = InternalPos(idx: buf.queueSize - 1, offset: buf.queuedRegion[^1].len)
+  if size >= buf.len:
+    while buf.queueSize > 0:
+      dec buf.len, buf.queuedRegion[0].len
+      yield buf.queuedRegion.popFirst()
+  else:
+    var searchPos = size
 
-  for region in buf.visitRegion(start = leftPos, stop = rightPos):
-    debugEcho region.toOpenArray
+    for idx in 0 ..< buf.queueSize:
+      let len = buf.queuedRegion[0].len
+
+      if searchPos < len:
+        if searchPos > 0:
+          dec buf.len, searchPos
+          var region = buf.queuedRegion[0][0 ..< searchPos]
+          buf.queuedRegion[0].discardLeft(searchPos)
+          yield move region
+        break
+
+      dec buf.len, len
+      dec searchPos, len
+
+      yield buf.queuedRegion.popFirst()

@@ -90,19 +90,5 @@ when defined(linux):
     else:
       result = writev(cint(fd), vecBuf[0].addr, cint(num))
 
-    if result <= 0:
-      return
-
-    size = result
-
-    for idx in 0 ..< num:
-      let dataLen = int(vecBuf[idx].iov_len)
-
-      if size < dataLen:
-        InternalIOBuf(buf).dequeueLeftAdjust(idx, size, result)
-        break
-      elif size == dataLen:
-        InternalIOBuf(buf).dequeueLeftAdjust(idx + 1, 0, result)
-        break
-
-      dec size, dataLen
+    if result > 0:
+      InternalIOBuf(buf).dequeueLeft(result)
