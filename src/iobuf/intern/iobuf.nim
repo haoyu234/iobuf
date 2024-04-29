@@ -1,6 +1,8 @@
+import std/deques
+import std/strformat
+
 import ./chunk
 import ./region
-import ./deque
 import ../slice2
 
 type InternalIOBuf* = object
@@ -30,6 +32,14 @@ proc `=destroy`(buf: InternalIOBuf) =
 
   `=destroy`(buf.lastChunk)
   `=destroy`(buf.queuedRegion.addr[])
+
+proc `=sink`(buf: var InternalIOBuf, b: InternalIOBuf) =
+  `=destroy`(buf)
+
+  buf.len = b.len
+  buf.lastChunk = b.lastChunk
+
+  `=sink`(buf.queuedRegion, b.queuedRegion)
 
 proc `=copy`(buf: var InternalIOBuf, b: InternalIOBuf) =
   if b.len <= 0:
@@ -300,3 +310,11 @@ iterator visitLeftRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
       dec searchPos, len
 
       yield buf.queuedRegion.popFirst()
+
+proc `$`*(buf: InternalIOBuf): string {.inline.} =
+  result = fmt"IOBuf(len: {buf.len}, queueSize: {buf.queueSize}, queuedRegion: ["
+  for i, region in buf.queuedRegion.pairs:
+    if i != 0:
+      result.add(", ")
+    result.addQuoted(region)
+  result.add("])")

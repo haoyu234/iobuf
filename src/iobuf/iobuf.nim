@@ -6,6 +6,9 @@ import ./intern/iobuf
 
 type IOBuf* = distinct InternalIOBuf
 
+proc `$`*(buf: IOBuf): string {.inline.} =
+  $InternalIOBuf(buf)
+
 proc len*(buf: IOBuf): int {.inline.} =
   InternalIOBuf(buf).len
 
@@ -22,7 +25,7 @@ iterator items*(buf: IOBuf): Slice2[byte] {.inline.} =
   for region in InternalIOBuf(buf):
     yield region.toOpenArray().slice()
 
-proc skip*(buf: var IOBuf, size: int) {.inline.} =
+proc consume*(buf: var IOBuf, size: int) {.inline.} =
   InternalIOBuf(buf).dequeueLeft(size)
 
 proc writeCopy*(buf: var IOBuf, data: pointer, len: int) {.inline.} =
@@ -86,18 +89,18 @@ proc readCopyInto*(buf: var IOBuf, data: pointer, size: int) {.inline.} =
 
   var offset = uint(0)
 
-  for region in InternalIOBuf(buf).visitLeftAndDequeue(size):
+  for slice in InternalIOBuf(buf).visitLeftAndDequeue(size):
     let dstAddr = cast[uint](data) + offset
-    inc offset, region.len
+    inc offset, slice.len
 
-    copyMem(cast[pointer](dstAddr), region.leftAddr, region.len)
+    copyMem(cast[pointer](dstAddr), slice.leftAddr, slice.len)
 
 proc readCopyInto*(buf: var IOBuf, data: var seq[byte], size: int) {.inline.} =
   assert size > 0
   assert size <= buf.len
 
-  for region in InternalIOBuf(buf).visitLeftAndDequeue(size):
-    data.add(region.toOpenArray)
+  for slice in InternalIOBuf(buf).visitLeftAndDequeue(size):
+    data.add(slice.toOpenArray)
 
 proc readZeroCopyInto*(buf, into: var IOBuf, size: int) {.inline.} =
   assert size > 0

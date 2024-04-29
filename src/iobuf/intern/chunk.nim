@@ -1,3 +1,5 @@
+import std/strformat
+
 const DEFAULT_CHUNK_SIZE* = 8192
 const DEFAULT_LARGE_CHUNK_SIZE* = DEFAULT_CHUNK_SIZE * 4
 
@@ -87,6 +89,9 @@ template dequeue*(chunk: var Chunk): Chunk =
   if not result.isNil:
     chunk = result.nextChunk
   result
+
+proc `$`*(chunk: Chunk): string {.inline.} =
+  fmt"Chunk(len: {chunk.len}, capacity: {chunk.capacity}, storage: {cast[uint](chunk.storage)})"
 
 template toOpenArray*(chunk: Chunk): openArray[byte] =
   cast[ptr UncheckedArray[byte]](chunk.storage).toOpenArray(0, chunk.len - 1)

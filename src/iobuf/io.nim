@@ -5,7 +5,7 @@ import ./intern/chunk
 import ./intern/region
 import ./intern/iobuf
 
-const MAX_IOVEC_NUM = 64
+const MAX_IOVEC_NUM = 32
 
 proc releaseManyChunk(
     buf: var InternalIOBuf, vecChunk: var openArray[Chunk]

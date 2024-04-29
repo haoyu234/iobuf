@@ -14,6 +14,8 @@ const data = static:
     data.add(byte(i mod int(high(byte))))
   data
 
+var preConcatData: seq[byte]
+
 # time dd if=/dev/zero of=/dev/null bs=100000000 count=1
 
 template benchLoop(op, maxSize) =
@@ -108,12 +110,27 @@ proc writeConcatSeq() =
 
   benchLoop(body, SIZE)
 
+  preConcatData = move buf
+
+proc writePreConcatSeq() =
+  let file = open("/dev/null", FileMode.fmWrite)
+  defer:
+    file.close()
+
+  doAssert preConcatData.len == SIZE
+
+  template body(size): int =
+    file.writeBuffer(preConcatData[size].addr, SIZE - size)
+
+  benchLoop(body, SIZE)
+
 type BenchTp = enum
   Memcpy
   ReadIntoStackBuf
   ReadIntoIOBuf
   WriteN
   WriteConcatSeq
+  WritePreConcatSeq
   WriteIOBuf
 
 proc memcpyBench() =
@@ -143,6 +160,8 @@ proc bench(tp: BenchTp, info: string) =
     writeLoop()
   of WriteConcatSeq:
     writeConcatSeq()
+  of WritePreConcatSeq:
+    writePreConcatSeq()
   of WriteIOBuf:
     writeIOBuf()
 
@@ -164,4 +183,5 @@ bench(ReadIntoStackBuf, "read in N call")
 bench(ReadIntoIOBuf, "readv")
 bench(WriteN, "write in N call")
 bench(WriteConcatSeq, "concat into seq, write in 1 call")
+bench(WritePreConcatSeq, "use pre concat seq, write in 1 call")
 bench(WriteIOBuf, "appendZeroCopy, writev")
