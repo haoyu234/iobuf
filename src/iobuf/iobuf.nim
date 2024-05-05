@@ -83,6 +83,12 @@ proc peekZeroCopyInto*(buf: IOBuf, into: var IOBuf, size: int) {.inline.} =
   for region in InternalIOBuf(buf).visitLeftRegion(size):
     InternalIOBuf(into).enqueueRightZeroCopy(region)
 
+proc peekCopy*(buf: IOBuf, size: int): seq[byte] {.inline.} =
+  buf.peekCopyInto(result, size)
+
+proc peekZeroCopy*(buf: IOBuf, size: int): IOBuf {.inline.} =
+  buf.peekZeroCopyInto(result, size)
+
 proc readCopyInto*(buf: var IOBuf, data: pointer, size: int) {.inline.} =
   assert size > 0
   assert size <= buf.len
@@ -108,3 +114,9 @@ proc readZeroCopyInto*(buf, into: var IOBuf, size: int) {.inline.} =
 
   for region in InternalIOBuf(buf).visitLeftRegionAndDequeue(size):
     InternalIOBuf(into).enqueueRightZeroCopy(region)
+
+proc readCopy*(buf: var IOBuf, size: int): seq[byte] {.inline.} =
+  buf.readCopyInto(result, size)
+
+proc readZeroCopy*(buf: var IOBuf, size: int): IOBuf {.inline.} =
+  buf.readZeroCopyInto(result, size)
