@@ -48,7 +48,7 @@ proc produceAsyncIOBuf(fd: AsyncFD, data: seq[byte]) {.async.} =
 
   check buf.len == data.len
 
-  await writeIOBuf(fd, buf.addr, buf.len)
+  await writeIOBuf(fd, buf.addr)
 
 proc consumeAsyncIOBuf(fd: AsyncFD, buf: ptr IOBuf, maxSize: int) {.async.} =
   defer:

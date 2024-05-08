@@ -1,6 +1,6 @@
 import ./iobuf
 
-import ./intern/iobuf
+import ./intern/dequebuf
 
 template readImpl[T](s: var IOBuf, result: var T) =
   assert s.len >= sizeof(T)

@@ -2,14 +2,11 @@ import ./iobuf
 import ./slice2
 
 import ./intern/chunk
-import ./intern/region
-import ./intern/iobuf
+import ./intern/dequebuf
 
 const MAX_IOVEC_NUM = 32
 
-proc releaseManyChunk(
-    buf: var InternalIOBuf, vecChunk: var openArray[Chunk]
-) {.inline.} =
+proc releaseManyChunk(buf: var DequeBuf, vecChunk: var openArray[Chunk]) {.inline.} =
   var idx = vecChunk.len
   while idx > 0:
     dec idx
@@ -27,10 +24,10 @@ when defined(linux):
     var vecBuf: array[MAX_IOVEC_NUM, IOVec]
     var vecChunk: array[MAX_IOVEC_NUM, Chunk]
 
-    for chunk in InternalIOBuf(buf).allocChunkMany(maxSize):
+    for chunk in DequeBuf(buf).allocChunkMany(maxSize):
       let left = maxSize - size
 
-      let len = min(chunk.leftSpace(), left)
+      let len = min(chunk.freeSpace(), left)
       inc size, len
 
       vecBuf[num].iov_base = chunk.writeAddr
@@ -54,32 +51,22 @@ when defined(linux):
           let len = min(int(vecBuf[idx].iov_len), size)
           dec size, len
 
-          let oldLen = vecChunk[idx].len
-          vecChunk[idx].advanceWpos(len)
+          var region = vecChunk[idx].advanceWposRegion(len)
+          DequeBuf(buf).enqueueRightZeroCopy(move region)
 
-          var region = initRegion(vecChunk[idx], oldLen, len)
-          InternalIOBuf(buf).enqueueRightZeroCopy(move region)
+    releaseManyChunk(DequeBuf(buf), vecChunk.toOpenArray(0, num - 1))
 
-    releaseManyChunk(InternalIOBuf(buf), vecChunk.toOpenArray(0, num - 1))
-
-  proc writeIOBuf*(fd: cint, buf: var IOBuf, maxSize: int): int =
-    assert maxSize > 0
-
+  proc writeIOBuf*(fd: cint, buf: var IOBuf): int =
     var num = 0
     var size = 0
 
     var vecBuf: array[MAX_IOVEC_NUM, IOVec]
 
     for slice in buf.items():
-      if size >= maxSize:
-        break
-
-      let left = maxSize - size
-      let len = min(slice.len, left)
-      inc size, len
+      inc size, slice.len
 
       vecBuf[num].iov_base = slice.leftAddr
-      vecBuf[num].iov_len = csize_t(len)
+      vecBuf[num].iov_len = csize_t(slice.len)
 
       inc num
       if num >= MAX_IOVEC_NUM:
@@ -91,4 +78,4 @@ when defined(linux):
       result = writev(cint(fd), vecBuf[0].addr, cint(num))
 
     if result > 0:
-      InternalIOBuf(buf).dequeueLeft(result)
+      DequeBuf(buf).dequeueLeft(result)

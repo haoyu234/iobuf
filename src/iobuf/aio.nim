@@ -1,9 +1,14 @@
 import std/asyncdispatch
+import std/asyncnet
 import std/oserrors
 import std/nativesockets
+import std/importutils
 
 import ./iobuf
+import ./intern/dequebuf
+import ./intern/chunk
 import ./io
+import ./slice2
 
 proc isDisconnectionError*(lastError: OSErrorCode): bool =
   ## Determines whether `lastError` is a disconnection error.
@@ -23,6 +28,8 @@ when defined(linux):
   proc readIntoIOBuf*(
       socket: AsyncFD, buf: ptr IOBuf, maxSize: int
   ): owned(Future[int]) =
+    assert maxSize > 0
+
     var retFuture = newFuture[int]("readIntoIOBuf")
 
     proc cb(sock: AsyncFD): bool =
@@ -43,18 +50,16 @@ when defined(linux):
     addRead(socket, cb)
     return retFuture
 
-  proc writeIOBuf*(socket: AsyncFD, buf: ptr IOBuf, maxSize: int): owned(Future[void]) =
-    assert maxSize > 0
-    assert maxSize <= buf[].len
-
-    var retFuture = newFuture[void]("writeIOBuf")
+  proc writeIOBuf*(socket: AsyncFD, buf: ptr IOBuf): owned(Future[void]) =
+    assert buf[].len > 0
 
     var written = 0
+    let maxSize = buf[].len
+    var retFuture = newFuture[void]("writeIOBuf")
 
     proc cb(sock: AsyncFD): bool =
       result = true
-      let netSize = maxSize - written
-      let res = writeIOBuf(cint(sock), buf[], netSize)
+      let res = writeIOBuf(cint(sock), buf[])
       if res < 0:
         let lastError = osLastError()
         if lastError.int32 != EINTR and lastError.int32 != EWOULDBLOCK and
@@ -64,7 +69,7 @@ when defined(linux):
           result = false # We still want this callback to be called.
       else:
         written.inc(res)
-        if res != netSize:
+        if written < maxSize:
           result = false # We still have data to send.
         else:
           retFuture.complete()
@@ -73,3 +78,48 @@ when defined(linux):
     #if not cb(socket):
     addWrite(socket, cb)
     return retFuture
+
+proc readIntoIOBufFailback(
+    socket: AsyncSocket, buf: ptr IOBuf, maxSize: int): owned(Future[
+        int]) {.async.} =
+  let chunk = DequeBuf(buf[]).allocChunk()
+  let n = await socket.recvInto(chunk.writeAddr, min(chunk.freeSpace, maxSize))
+  if n > 0:
+    var region = chunk.advanceWposRegion(n)
+    DequeBuf(buf[]).enqueueRightZeroCopy(move region)
+  n
+
+proc writeIOBufFailback(
+    socket: AsyncSocket, buf: ptr IOBuf): owned(Future[void]) {.async.} =
+  var written = 0
+  defer:
+    DequeBuf(buf[]).dequeueLeft(written)
+
+  for slice in buf[].items():
+    await socket.send(slice.leftAddr, slice.len)
+    inc written, slice.len
+
+proc readIntoIOBuf*(
+    socket: AsyncSocket, buf: ptr IOBuf, maxSize: int): owned(Future[int]) =
+  assert maxSize > 0
+
+  when defined(linux):
+    privateAccess(AsyncSocket)
+
+    # readv
+    if not socket.isBuffered and not socket.isSsl:
+      return AsyncFD(socket.fd).readIntoIOBuf(buf, maxSize)
+
+  readIntoIOBufFailback(socket, buf, maxSize)
+
+proc writeIOBuf*(socket: AsyncSocket, buf: ptr IOBuf): owned(Future[void]) =
+  assert buf[].len > 0
+
+  when defined(linux):
+    privateAccess(AsyncSocket)
+
+    # writev
+    if not socket.isBuffered and not socket.isSsl:
+      return writeIOBuf(AsyncFD(socket.fd), buf)
+
+  writeIOBufFailback(socket, buf)

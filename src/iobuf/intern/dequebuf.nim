@@ -2,30 +2,29 @@ import std/deques
 import std/strformat
 
 import ./chunk
-import ./region
 import ../slice2
 
-type InternalIOBuf* = object
+type DequeBuf* = object
   len: int
   lastChunk: Chunk
   queuedRegion: Deque[Region]
 
-template len*(buf: InternalIOBuf): int =
+template len*(buf: DequeBuf): int =
   buf.len
 
-template queueSize*(buf: InternalIOBuf): int =
+template queueSize*(buf: DequeBuf): int =
   buf.queuedRegion.len
 
-template clear*(buf: var InternalIOBuf) =
+template clear*(buf: var DequeBuf) =
   if buf.len > 0:
     buf.len = 0
     buf.queuedRegion.clear
 
-iterator items*(buf: InternalIOBuf): lent Region =
+iterator items*(buf: DequeBuf): lent Region =
   for region in buf.queuedRegion:
     yield region
 
-proc `=destroy`(buf: InternalIOBuf) =
+proc `=destroy`(buf: DequeBuf) =
   var last = buf.lastChunk
   while not last.isNil:
     discard last.dequeue
@@ -33,7 +32,7 @@ proc `=destroy`(buf: InternalIOBuf) =
   `=destroy`(buf.lastChunk)
   `=destroy`(buf.queuedRegion.addr[])
 
-proc `=sink`(buf: var InternalIOBuf, b: InternalIOBuf) =
+proc `=sink`(buf: var DequeBuf, b: DequeBuf) =
   `=destroy`(buf)
 
   buf.len = b.len
@@ -41,20 +40,20 @@ proc `=sink`(buf: var InternalIOBuf, b: InternalIOBuf) =
 
   `=sink`(buf.queuedRegion, b.queuedRegion)
 
-proc `=copy`(buf: var InternalIOBuf, b: InternalIOBuf) =
+proc `=copy`(buf: var DequeBuf, b: DequeBuf) =
   if b.len <= 0:
     return
 
   buf.len = b.len
   `=copy`(buf.queuedRegion, b.queuedRegion)
 
-proc allocChunk*(buf: var InternalIOBuf): Chunk {.inline.} =
+proc allocChunk*(buf: var DequeBuf): Chunk {.inline.} =
   result = buf.lastChunk.dequeue
 
   if result.isNil:
     result = newChunk(DEFAULT_CHUNK_SIZE)
 
-iterator allocChunkMany*(buf: var InternalIOBuf, size: int): owned Chunk =
+iterator allocChunkMany*(buf: var DequeBuf, size: int): owned Chunk =
   var left = size
 
   while left > 0:
@@ -65,15 +64,15 @@ iterator allocChunkMany*(buf: var InternalIOBuf, size: int): owned Chunk =
       yield chunk
     else:
       let chunk = buf.allocChunk()
-      dec left, chunk.leftSpace
+      dec left, chunk.freeSpace
       yield chunk
 
-proc releaseChunk*(buf: var InternalIOBuf, chunk: sink Chunk) {.inline.} =
+proc releaseChunk*(buf: var DequeBuf, chunk: sink Chunk) {.inline.} =
   if not chunk.isFull:
     buf.lastChunk.enqueue(chunk)
 
 iterator preprocessingEnqueueSlowCopy(
-    buf: var InternalIOBuf, data: pointer, size: int
+    buf: var DequeBuf, data: pointer, size: int
 ): Region =
   assert size > 0
 
@@ -82,10 +81,9 @@ iterator preprocessingEnqueueSlowCopy(
 
   for chunk in buf.allocChunkMany(size):
     let leftAddr = chunk.leftAddr
-    let oldOffset = chunk.len
 
-    let len = min(size - offset, chunk.leftSpace)
-    let dstAddr = cast[pointer](cast[uint](leftAddr) + uint(oldOffset))
+    let len = min(size - offset, chunk.freeSpace)
+    let dstAddr = cast[pointer](cast[uint](leftAddr) + uint(chunk.len))
     let srcAddr = cast[pointer](cast[uint](data) + uint(offset))
 
     copyMem(dstAddr, srcAddr, len)
@@ -93,35 +91,31 @@ iterator preprocessingEnqueueSlowCopy(
     inc offset, len
     lastChunk = chunk
 
-    chunk.advanceWpos(len)
-
-    yield initRegion(chunk, oldOffset, len)
+    yield chunk.advanceWposRegion(len)
 
   assert lastChunk != nil
 
   buf.releaseChunk(move lastChunk)
 
-proc preprocessingEnqueueOneByte(
-    buf: var InternalIOBuf, data: byte
-): Region {.inline.} =
+proc preprocessingEnqueueOneByte(buf: var DequeBuf, data: byte): Region {.inline.} =
   var lastChunk = buf.allocChunk()
+
+  defer:
+    buf.releaseChunk(lastChunk)
+
   let len = lastChunk.len
   let dstAddr = cast[pointer](cast[uint](lastChunk.leftAddr) + uint(len))
   cast[ptr byte](dstAddr)[] = data
 
-  lastChunk.advanceWpos(1)
+  lastChunk.advanceWposRegion(1)
 
-  buf.releaseChunk(lastChunk)
-
-  initRegion(move lastChunk, len, 1)
-
-proc enqueueLeftZeroCopy*(buf: var InternalIOBuf, data: InternalIOBuf) {.inline.} =
+proc enqueueLeftZeroCopy*(buf: var DequeBuf, data: DequeBuf) {.inline.} =
   inc buf.len, data.len
 
   for i in countdown(data.queueSize - 1, 0):
     buf.queuedRegion.addFirst(data.queuedRegion[i])
 
-proc enqueueLeftZeroCopy*(buf: var InternalIOBuf, region: sink Region) {.inline.} =
+proc enqueueLeftZeroCopy*(buf: var DequeBuf, region: sink Region) {.inline.} =
   inc buf.len, region.len
 
   if buf.queueSize > 0:
@@ -132,21 +126,21 @@ proc enqueueLeftZeroCopy*(buf: var InternalIOBuf, region: sink Region) {.inline.
 
   buf.queuedRegion.addFirst(move region)
 
-proc enqueueLeftCopy*(buf: var InternalIOBuf, data: pointer, size: int) {.inline.} =
+proc enqueueLeftCopy*(buf: var DequeBuf, data: pointer, size: int) {.inline.} =
   for region in buf.preprocessingEnqueueSlowCopy(data, size):
     buf.enqueueLeftZeroCopy(region)
 
-proc enqueueByteLeft*(buf: var InternalIOBuf, data: byte) {.inline.} =
+proc enqueueByteLeft*(buf: var DequeBuf, data: byte) {.inline.} =
   var region = buf.preprocessingEnqueueOneByte(data)
   buf.enqueueLeftZeroCopy(move region)
 
-proc enqueueRightZeroCopy*(buf: var InternalIOBuf, data: InternalIOBuf) {.inline.} =
+proc enqueueRightZeroCopy*(buf: var DequeBuf, data: DequeBuf) {.inline.} =
   inc buf.len, data.len
 
   for region in data.queuedRegion:
     buf.queuedRegion.addLast(region)
 
-proc enqueueRightZeroCopy*(buf: var InternalIOBuf, region: sink Region) {.inline.} =
+proc enqueueRightZeroCopy*(buf: var DequeBuf, region: sink Region) {.inline.} =
   inc buf.len, region.len
 
   if buf.queueSize > 0:
@@ -157,15 +151,15 @@ proc enqueueRightZeroCopy*(buf: var InternalIOBuf, region: sink Region) {.inline
 
   buf.queuedRegion.addLast(move region)
 
-proc enqueueRightCopy*(buf: var InternalIOBuf, data: pointer, size: int) {.inline.} =
+proc enqueueRightCopy*(buf: var DequeBuf, data: pointer, size: int) {.inline.} =
   for region in buf.preprocessingEnqueueSlowCopy(data, size):
     buf.enqueueRightZeroCopy(region)
 
-proc enqueueByteRight*(buf: var InternalIOBuf, data: byte) {.inline.} =
+proc enqueueByteRight*(buf: var DequeBuf, data: byte) {.inline.} =
   var region = buf.preprocessingEnqueueOneByte(data)
   buf.enqueueRightZeroCopy(move region)
 
-proc dequeueLeft*(buf: var InternalIOBuf, size: int) =
+proc dequeueLeft*(buf: var DequeBuf, size: int) =
   assert size > 0
   assert size <= buf.len
 
@@ -188,7 +182,7 @@ proc dequeueLeft*(buf: var InternalIOBuf, size: int) =
 
   dec buf.len, size
 
-proc dequeueRight*(buf: var InternalIOBuf, size: int) =
+proc dequeueRight*(buf: var DequeBuf, size: int) =
   assert size > 0
   assert size <= buf.len
 
@@ -211,7 +205,7 @@ proc dequeueRight*(buf: var InternalIOBuf, size: int) =
 
   dec buf.len, size
 
-iterator visitLeft*(buf: InternalIOBuf, size: int): Slice2[byte] =
+iterator visitLeft*(buf: DequeBuf, size: int): Slice2[byte] =
   assert size > 0
   assert size <= buf.len
 
@@ -233,7 +227,7 @@ iterator visitLeft*(buf: InternalIOBuf, size: int): Slice2[byte] =
 
       yield region[].toOpenArray.slice
 
-iterator visitLeftAndDequeue*(buf: var InternalIOBuf, size: int): Slice2[byte] =
+iterator visitLeftAndDequeue*(buf: var DequeBuf, size: int): Slice2[byte] =
   assert size > 0
   assert size <= buf.len
 
@@ -262,7 +256,7 @@ iterator visitLeftAndDequeue*(buf: var InternalIOBuf, size: int): Slice2[byte] =
       let region = buf.queuedRegion.popFirst()
       yield region.toOpenArray.slice
 
-iterator visitLeftRegion*(buf: InternalIOBuf, size: int): Region =
+iterator visitLeftRegion*(buf: DequeBuf, size: int): Region =
   assert size > 0
   assert size <= buf.len
 
@@ -284,7 +278,7 @@ iterator visitLeftRegion*(buf: InternalIOBuf, size: int): Region =
 
       yield region[]
 
-iterator visitLeftRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
+iterator visitLeftRegionAndDequeue*(buf: var DequeBuf, size: int): Region =
   assert size > 0
   assert size <= buf.len
 
@@ -311,8 +305,8 @@ iterator visitLeftRegionAndDequeue*(buf: var InternalIOBuf, size: int): Region =
 
       yield buf.queuedRegion.popFirst()
 
-proc `$`*(buf: InternalIOBuf): string {.inline.} =
-  result = fmt"IOBuf(len: {buf.len}, queueSize: {buf.queueSize}, queuedRegion: ["
+proc `$`*(buf: DequeBuf): string {.inline.} =
+  result = fmt"(len: {buf.len}, queueSize: {buf.queueSize}, queuedRegion: ["
   for i, region in buf.queuedRegion.pairs:
     if i != 0:
       result.add(", ")

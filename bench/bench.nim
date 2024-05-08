@@ -57,7 +57,7 @@ proc writeIOBuf() =
     file.close()
 
   template body(size): int =
-    writeIOBuf(cint(fd), buf, SIZE - size)
+    writeIOBuf(cint(fd), buf)
 
   benchLoop(body, SIZE)
 
