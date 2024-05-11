@@ -2,13 +2,18 @@ import std/asyncdispatch
 import std/asyncnet
 import std/oserrors
 import std/nativesockets
-import std/importutils
 
 import ./iobuf
-import ./intern/dequebuf
-import ./intern/chunk
-import ./io
 import ./slice2
+import ./intern/chunk
+import ./intern/dequebuf
+
+when defined(windows):
+  import std/winlean
+else:
+  import std/importutils
+
+  import ./io
 
 proc isDisconnectionError*(lastError: OSErrorCode): bool =
   ## Determines whether `lastError` is a disconnection error.
@@ -79,7 +84,7 @@ when defined(linux):
     addWrite(socket, cb)
     return retFuture
 
-proc readIntoIOBufFailback(
+proc readIntoIOBufSlow(
     socket: AsyncSocket, buf: ptr IOBuf, maxSize: int): owned(Future[
         int]) {.async.} =
   let chunk = DequeBuf(buf[]).allocChunk()
@@ -89,7 +94,7 @@ proc readIntoIOBufFailback(
     DequeBuf(buf[]).enqueueRightZeroCopy(move region)
   n
 
-proc writeIOBufFailback(
+proc writeIOBufSlow(
     socket: AsyncSocket, buf: ptr IOBuf): owned(Future[void]) {.async.} =
   var written = 0
   defer:
@@ -110,7 +115,7 @@ proc readIntoIOBuf*(
     if not socket.isBuffered and not socket.isSsl:
       return AsyncFD(socket.fd).readIntoIOBuf(buf, maxSize)
 
-  readIntoIOBufFailback(socket, buf, maxSize)
+  readIntoIOBufSlow(socket, buf, maxSize)
 
 proc writeIOBuf*(socket: AsyncSocket, buf: ptr IOBuf): owned(Future[void]) =
   assert buf[].len > 0
@@ -122,4 +127,4 @@ proc writeIOBuf*(socket: AsyncSocket, buf: ptr IOBuf): owned(Future[void]) =
     if not socket.isBuffered and not socket.isSsl:
       return writeIOBuf(AsyncFD(socket.fd), buf)
 
-  writeIOBufFailback(socket, buf)
+  writeIOBufSlow(socket, buf)
