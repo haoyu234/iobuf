@@ -10,7 +10,7 @@ type
     len: int
     capacity: int
     storage: pointer
-    nextChunk: Chunk
+    nextChunk*: Chunk
 
   Chunk* = ref ChunkBase
   ChunkObj2 = object of ChunkBase
@@ -25,10 +25,16 @@ type
     len: uint32
     chunk: Chunk
 
+proc `=destroy`(chunk: ChunkBase) =
+  discard
+
 proc `=destroy`(chunk: ChunkObj2) =
   let storage = chunk.storage
   if not storage.isNil:
     deallocShared(storage)
+
+proc `=destroy`(chunk: ChunkObj3) =
+  `=destroy`(chunk.data)
 
 proc newChunk*(storage: pointer, len, capacity: int): owned Chunk {.inline.} =
   var chunk = new(Chunk)
@@ -109,16 +115,6 @@ proc region*(chunk: Chunk, offset, len: int): Region {.inline.} =
 
 template capacity*(chunk: Chunk): int =
   chunk.capacity
-
-template enqueue*(chunk: var Chunk, next: Chunk) =
-  next.nextChunk = chunk
-  chunk = next
-
-template dequeue*(chunk: var Chunk): Chunk =
-  var result = move chunk
-  if not result.isNil:
-    chunk = result.nextChunk
-  result
 
 proc `$`*(chunk: Chunk): string {.inline.} =
   fmt"Chunk(len: {chunk.len}, capacity: {chunk.capacity}, storage: {cast[uint](chunk.storage)})"

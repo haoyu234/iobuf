@@ -27,7 +27,7 @@ iterator items*(buf: DequeBuf): lent Region =
 proc `=destroy`(buf: DequeBuf) =
   var last = buf.lastChunk
   while not last.isNil:
-    discard last.dequeue
+    last = move last.nextChunk
 
   `=destroy`(buf.lastChunk)
   `=destroy`(buf.queuedRegion.addr[])
@@ -48,9 +48,11 @@ proc `=copy`(buf: var DequeBuf, b: DequeBuf) =
   `=copy`(buf.queuedRegion, b.queuedRegion)
 
 proc allocChunk*(buf: var DequeBuf): Chunk {.inline.} =
-  result = buf.lastChunk.dequeue
+  result = move buf.lastChunk
 
-  if result.isNil:
+  if not result.isNil:
+    buf.lastChunk = move result.nextChunk
+  else:
     result = newChunk(DEFAULT_CHUNK_SIZE)
 
 iterator allocChunkMany*(buf: var DequeBuf, size: int): owned Chunk =
@@ -69,7 +71,8 @@ iterator allocChunkMany*(buf: var DequeBuf, size: int): owned Chunk =
 
 proc releaseChunk*(buf: var DequeBuf, chunk: sink Chunk) {.inline.} =
   if not chunk.isFull:
-    buf.lastChunk.enqueue(chunk)
+    chunk.nextChunk = move buf.lastChunk
+    buf.lastChunk = move chunk
 
 iterator preprocessingEnqueueSlowCopy(
     buf: var DequeBuf, data: pointer, size: int
